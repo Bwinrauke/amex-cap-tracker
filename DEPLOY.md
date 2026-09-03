@@ -23,7 +23,7 @@ redeploy so magic links point at the right host:
 
 | Name | Value |
 | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | `https://<your-app>.vercel.app` |
+| `NEXT_PUBLIC_SITE_URL` | `https://<your-app>.vercel.app`, then `https://apps.cityjeans.com` once the domain is live |
 
 Nothing else is required. `SUPABASE_SERVICE_ROLE_KEY` and the `PLAID_*`
 variables are only needed if Plaid is switched on, which it is not by default.
@@ -35,6 +35,9 @@ dashboard, under **Authentication → URL Configuration**:
 
 - Set **Site URL** to `https://<your-app>.vercel.app`
 - Add `https://<your-app>.vercel.app/auth/callback` to **Redirect URLs**
+
+Once `apps.cityjeans.com` is live, add its callback too and make it the Site
+URL. Keeping both means neither host locks you out.
 
 ## 4. Only your address can hold an account
 
@@ -61,46 +64,67 @@ entry alone does not remove access already granted.
 As a second layer you can also turn off new signups entirely in Supabase under
 **Authentication → Sign In / Providers**, once you have signed in.
 
-## Using your own domain
+## Putting it on apps.cityjeans.com
 
-Works with any domain, on any registrar. Deploy and confirm the app works on
-the `.vercel.app` URL first — debugging DNS and a broken build at the same
-time is miserable.
+`cityjeans.com` serves the Shopify Plus storefront, so nothing about the root
+domain changes. `apps` is a separate DNS record; adding it cannot affect the
+store, and it does not touch `MX` records, so email is unaffected too.
 
-1. **Vercel → Project → Settings → Domains → Add**, and enter the domain.
-2. Vercel shows the exact DNS record to create. It differs by shape:
+Deploy and confirm the app works on the `.vercel.app` URL first — debugging
+DNS and a broken build at the same time is miserable.
 
-   | What you enter | Record Vercel asks for |
-   | --- | --- |
-   | `app.example.com` (subdomain) | `CNAME` → `cname.vercel-dns.com` |
-   | `example.com` (root/apex) | `A` → the IP Vercel shows, or `ALIAS`/`ANAME` where the registrar supports it |
+### 1. Claim the domain in Vercel first
 
-3. Add that record at whoever runs the domain's DNS. Certificates are issued
-   automatically once it resolves; propagation is usually minutes.
+**Vercel → Project → Settings → Domains → Add**, enter `apps.cityjeans.com`.
 
-**Do not repoint a domain that already serves a website.** Changing the `A` or
-`CNAME` for a name that currently loads a storefront or marketing site will
-take that site down. Put the app on a subdomain that is not in use instead.
-Adding a web record does not affect `MX` records, so email keeps working.
+Do this before creating the DNS record: Vercel then shows you the exact target
+to point at, and verifies the moment it resolves.
 
-### Then update both of these, or sign-in breaks silently
+### 2. Create the record
 
-A magic link is generated against a configured URL. Point it at the wrong host
-and the link either 404s or bounces back to the login page, with no error
-explaining why.
+| Field | Value |
+| --- | --- |
+| Type | `CNAME` |
+| Name / Host | `apps` (some panels want the full `apps.cityjeans.com`) |
+| Value / Target | `cname.vercel-dns.com` — **use whatever Vercel shows**, some accounts get a different target |
+| TTL | leave default |
 
-- **Vercel → Environment Variables**: set `NEXT_PUBLIC_SITE_URL` to
-  `https://<your-domain>`, then **redeploy** — env changes do not apply to an
-  existing deployment.
-- **Supabase → Authentication → URL Configuration**: set **Site URL** to the
-  same value, and add `https://<your-domain>/auth/callback` to **Redirect
-  URLs**.
+Where to create it depends on who runs the DNS for `cityjeans.com`. Check
+**Shopify admin → Settings → Domains**:
 
-Leave the old `.vercel.app` callback in the redirect list while you switch, so
-a mistake in the DNS does not lock you out of the app entirely.
+- **"Managed by Shopify"** → open the domain, *Edit DNS settings*, add a custom
+  `CNAME` record there.
+- **Shown as a connected third-party domain** → add it at whichever registrar
+  or DNS host the domain uses (GoDaddy, Cloudflare, Namecheap, and so on).
+
+If the DNS sits behind **Cloudflare**, set the record to **DNS only** (grey
+cloud, not orange). Leaving the proxy on stops Vercel from issuing a
+certificate, and the site fails with an SSL error.
+
+Certificates are issued automatically once the record resolves — usually
+minutes.
+
+### 3. Point sign-in at the new host
+
+A magic link is generated against a configured URL. Miss either of these and
+the link bounces back to the login page with no error explaining why.
+
+- **Vercel → Environment Variables**: set
+  `NEXT_PUBLIC_SITE_URL=https://apps.cityjeans.com`, then **redeploy** — env
+  changes do not apply to an existing deployment.
+- **Supabase → Authentication → URL Configuration**: set **Site URL** to
+  `https://apps.cityjeans.com`, and add
+  `https://apps.cityjeans.com/auth/callback` to **Redirect URLs**.
+
+Keep the `.vercel.app` callback in the redirect list while you switch, so a
+DNS mistake cannot lock you out of the app.
 
 ## Checking it worked
 
 The dashboard should show ten cards: three Amex Gold and seven Chase Ink, with
-a recommendation for advertising and one for shipping. If you land on the
-login page in a loop, step 3 was missed.
+a recommendation for advertising and one for shipping.
+
+If you land back on the login page in a loop, the callback URL is missing from
+Supabase's redirect list, or `NEXT_PUBLIC_SITE_URL` does not match the host you
+are actually on. If you reach a "no access" page instead, you signed in with an
+address that is not in `allowed_emails`.
