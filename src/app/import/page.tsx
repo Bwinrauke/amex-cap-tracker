@@ -21,7 +21,7 @@ export default async function ImportPage() {
   return (
     <Shell
       title="Import charges"
-      subtitle="Upload an Amex CSV. Nothing is written until you review the preview and commit."
+      subtitle="Upload a card statement CSV. Nothing is written until you review the preview and commit."
     >
       {viewer?.role !== "admin" ? (
         <div className="card p-8 text-center">

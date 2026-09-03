@@ -27,7 +27,7 @@ export default async function ChargesPage({
     .order("sort_order");
   const accounts = (accountData ?? []) as Pick<CardAccountRow, "id" | "nickname" | "last4">[];
 
-  // v_charge_allocation already carries the 4x/1x split per charge.
+  // v_charge_allocation already carries the bonus/base split per charge.
   let query = supabase
     .from("v_charge_allocation")
     .select("*", { count: "exact" })
@@ -57,7 +57,7 @@ export default async function ChargesPage({
   return (
     <Shell
       title="Charge log"
-      subtitle={`Every ${capYear} charge with its 4x / 1x split, straight from v_charge_allocation.`}
+      subtitle={`Every ${capYear} charge with its bonus / base split, straight from v_charge_allocation.`}
     >
       <form className="card mb-5 flex flex-wrap items-end gap-3 p-4" method="get">
         <div>
@@ -98,7 +98,7 @@ export default async function ChargesPage({
             defaultChecked={eligibleOnly}
             className="h-4 w-4 accent-green-500"
           />
-          4x eligible only
+          Bonus-eligible only
         </label>
         <button
           type="submit"
@@ -129,8 +129,8 @@ export default async function ChargesPage({
                   <th className="px-4 py-3 font-medium">Account</th>
                   <th className="px-4 py-3 font-medium">Category</th>
                   <th className="px-4 py-3 text-right font-medium">Amount</th>
-                  <th className="px-4 py-3 text-right font-medium">At 4x</th>
-                  <th className="px-4 py-3 text-right font-medium">At 1x</th>
+                  <th className="px-4 py-3 text-right font-medium">At bonus</th>
+                  <th className="px-4 py-3 text-right font-medium">At base</th>
                   <th className="px-4 py-3 text-right font-medium">Points</th>
                 </tr>
               </thead>

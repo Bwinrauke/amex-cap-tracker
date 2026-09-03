@@ -37,7 +37,7 @@ export default async function AccountsPage({
   return (
     <Shell
       title="Card accounts"
-      subtitle={`Cap configuration for ${capYear}. Each account carries its own $150,000 calendar-year 4x cap.`}
+      subtitle={`Cap configuration for ${capYear}. Each card carries its own bonus rate and annual cap.`}
     >
       {viewer?.role !== "admin" ? (
         <p className="card mb-5 p-3 text-xs text-ink-500">

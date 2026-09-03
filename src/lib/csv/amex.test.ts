@@ -157,6 +157,42 @@ describe("parseAmexCsv — layout 4: separate Debit and Credit columns", () => {
   });
 });
 
+describe("parseAmexCsv — Chase Ink export", () => {
+  // Chase writes purchases negative and uses "Post Date" rather than
+  // "Posted Date", so this exercises both the alias table and the sign
+  // detection against a non-Amex layout.
+  const csv = [
+    "Transaction Date,Post Date,Description,Category,Type,Amount",
+    "03/01/2026,03/02/2026,GOOGLE *ADS 8829,Advertising,Sale,-1500.00",
+    "03/03/2026,03/04/2026,STAPLES 00123,Office Supplies,Sale,-250.40",
+    "03/05/2026,03/06/2026,Payment Thank You - Web,,Payment,2000.00",
+    "03/07/2026,03/08/2026,GOOGLE *ADS REFUND,Advertising,Return,45.00",
+  ].join("\n");
+
+  it("resolves the Chase columns and posts the charges positive", () => {
+    const result = parseAmexCsv(csv);
+
+    expect(result.layout.headerFound).toBe(true);
+    expect(result.layout.signConvention).toBe("negative_is_charge");
+
+    const charges = result.charges.filter((c) => c.status === "posted");
+    expect(charges).toHaveLength(2);
+    expect(charges[0]).toMatchObject({
+      postedOn: "2026-03-02", merchant: "GOOGLE *ADS 8829", amount: 1500,
+    });
+    expect(charges[1].amount).toBe(250.4);
+  });
+
+  it("treats a Chase return as a refund and drops the payment", () => {
+    const result = parseAmexCsv(csv);
+
+    expect(result.charges.find((c) => /REFUND/.test(c.merchant))).toMatchObject({
+      amount: 45, status: "refunded",
+    });
+    expect(result.charges.some((c) => /Payment Thank You/.test(c.merchant))).toBe(false);
+  });
+});
+
 describe("parseAmexCsv — headerless files", () => {
   const csv = [
     "03/01/2026,GOOGLE ADS 8829,1500.00",

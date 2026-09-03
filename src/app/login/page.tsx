@@ -18,7 +18,7 @@ export default async function LoginPage({
           </div>
           <h1 className="text-xl font-semibold tracking-tight">Cap Runway</h1>
           <p className="mt-1 text-sm text-ink-500">
-            Amex Business Gold 4x spend against the $150,000 cap.
+            Bonus-category spend against every card's cap.
           </p>
         </div>
         <LoginForm next={next} />

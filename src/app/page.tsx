@@ -4,9 +4,16 @@ import { Shell } from "@/components/Shell";
 import { CapMeter } from "@/components/CapMeter";
 import { Kpi } from "@/components/Kpi";
 import { MonthlyStrip } from "@/components/MonthlyStrip";
-import { computeBurnRate, projectExhaust, recommendRouting } from "@/lib/cap";
+import { ChargePlanner } from "@/components/ChargePlanner";
+import {
+  bonusPointsAvailable,
+  computeBurnRate,
+  projectExhaust,
+  recommendCard,
+  type CardPosition,
+} from "@/lib/cap";
 import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
-import type { CapRunwayRow, MonthlySpendRow } from "@/lib/database.types";
+import type { CapRunwayRow, CardAccountRow, MonthlySpendRow } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,17 +29,25 @@ export default async function DashboardPage({
   const supabase = await createClient();
 
   // v_cap_runway is authoritative for every cap number on this page.
-  const [{ data: runwayData, error }, { data: monthlyData }] = await Promise.all([
-    supabase
-      .from("v_cap_runway")
-      .select("*")
-      .eq("cap_year", capYear)
-      .order("sort_order", { ascending: true }),
-    supabase.from("v_monthly_spend").select("*").eq("cap_year", capYear),
-  ]);
+  const [{ data: runwayData, error }, { data: monthlyData }, { data: accountData }] =
+    await Promise.all([
+      supabase
+        .from("v_cap_runway")
+        .select("*")
+        .eq("cap_year", capYear)
+        .order("sort_order", { ascending: true }),
+      supabase.from("v_monthly_spend").select("*").eq("cap_year", capYear),
+      supabase.from("card_accounts").select("id, product"),
+    ]);
 
   const runway = (runwayData ?? []) as CapRunwayRow[];
   const monthly = (monthlyData ?? []) as MonthlySpendRow[];
+  const products = new Map(
+    ((accountData ?? []) as Pick<CardAccountRow, "id" | "product">[]).map((a) => [
+      a.id,
+      a.product,
+    ]),
+  );
 
   const monthlyByAccount = new Map<string, Record<number, number>>();
   for (const row of monthly) {
@@ -41,26 +56,37 @@ export default async function DashboardPage({
     monthlyByAccount.set(row.card_account_id, current);
   }
 
+  // Each card carries its own rate and cap, so everything below works off
+  // per-card figures rather than assuming any one product's terms.
+  const positions: CardPosition[] = runway.map((row) => ({
+    cardAccountId: row.card_account_id,
+    nickname: row.nickname,
+    product: products.get(row.card_account_id) ?? "Card",
+    accountStatus: row.account_status,
+    capAmount: Number(row.cap_amount ?? 0),
+    capUsed: Number(row.cap_used ?? 0),
+    remainingRunway: Number(row.remaining_runway ?? 0),
+    bonusMultiplier: Number(row.bonus_multiplier ?? 1),
+    baseMultiplier: Number(row.base_multiplier ?? 1),
+  }));
+
   const totals = runway.reduce(
     (acc, row) => ({
       capUsed: acc.capUsed + Number(row.cap_used ?? 0),
-      capAmount: acc.capAmount + Number(row.cap_amount ?? 0),
       remaining: acc.remaining + Number(row.remaining_runway ?? 0),
       points: acc.points + Number(row.points ?? 0),
       pastCap: acc.pastCap + Number(row.spend_past_cap ?? 0),
-      charges: acc.charges + Number(row.charge_count ?? 0),
     }),
-    { capUsed: 0, capAmount: 0, remaining: 0, points: 0, pastCap: 0, charges: 0 },
+    { capUsed: 0, remaining: 0, points: 0, pastCap: 0 },
   );
 
-  const recommendation = recommendRouting(
-    runway.map((row) => ({
-      cardAccountId: row.card_account_id,
-      nickname: row.nickname,
-      remainingRunway: Number(row.remaining_runway ?? 0),
-      accountStatus: row.account_status,
-    })),
-  );
+  const recommendation = recommendCard(positions);
+
+  // Bonus points still on the table: what the remaining runway is worth at
+  // each card's uplift over its own base rate.
+  const bonusAvailable = positions
+    .filter((card) => card.accountStatus === "active")
+    .reduce((sum, card) => sum + bonusPointsAvailable(card), 0);
 
   const portfolioBurn = runway.reduce(
     (sum, row) =>
@@ -84,8 +110,8 @@ export default async function DashboardPage({
 
   return (
     <Shell
-      title="Cap runway"
-      subtitle={`Amex Business Gold 4x bonus spend for ${capYear}.`}
+      title="Points runway"
+      subtitle={`Bonus-category spend against each card's cap for ${capYear}.`}
       actions={
         <div className="flex items-center gap-2 text-sm">
           <Link
@@ -111,21 +137,25 @@ export default async function DashboardPage({
 
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi
-          label="Runway left"
-          value={formatMoney(totals.remaining)}
-          hint={`across ${runway.length} account${runway.length === 1 ? "" : "s"}`}
-          tone={totals.remaining > 0 ? "good" : "bad"}
+          label="Bonus points left"
+          value={formatNumber(bonusAvailable)}
+          hint="still capturable this year"
+          tone={bonusAvailable > 0 ? "good" : "bad"}
         />
         <Kpi
-          label="4x spend used"
-          value={formatMoney(totals.capUsed)}
-          hint={`of ${formatMoney(totals.capAmount)} combined cap`}
+          label="Runway left"
+          value={formatMoney(totals.remaining)}
+          hint={`across ${positions.length} card${positions.length === 1 ? "" : "s"}`}
         />
-        <Kpi label="Points earned" value={formatNumber(totals.points)} hint={`${capYear} to date`} />
+        <Kpi
+          label="Points earned"
+          value={formatNumber(totals.points)}
+          hint={`${capYear} to date`}
+        />
         <Kpi
           label="Spend past cap"
           value={formatMoney(totals.pastCap)}
-          hint="earning 1x instead of 4x"
+          hint="earned the base rate"
           tone={totals.pastCap > 0 ? "warn" : "default"}
         />
         <Kpi
@@ -135,7 +165,7 @@ export default async function DashboardPage({
             portfolioExhaust.date && portfolioExhaust.withinCapYear
               ? `all caps full ${formatDate(portfolioExhaust.date)}`
               : portfolioExhaust.reason === "beyond_year"
-                ? "cap resets before exhaustion"
+                ? "caps reset before exhaustion"
                 : "no spend logged yet"
           }
         />
@@ -143,40 +173,48 @@ export default async function DashboardPage({
 
       <section className="card mb-6 flex flex-wrap items-center justify-between gap-4 border-accent-500/25 bg-accent-500/5 p-5">
         <div>
-          <p className="text-xs uppercase tracking-wide text-accent-400">Route the next charge to</p>
-          {recommendation.account ? (
+          <p className="text-xs uppercase tracking-wide text-accent-400">
+            Route the next charge to
+          </p>
+          {recommendation.card ? (
             <>
-              <p className="mt-1 text-xl font-semibold">{recommendation.account.nickname}</p>
+              <p className="mt-1 text-xl font-semibold">{recommendation.card.nickname}</p>
               <p className="mt-0.5 text-sm text-ink-300">{recommendation.reason}</p>
             </>
           ) : (
             <>
-              <p className="mt-1 text-xl font-semibold text-ink-300">No account with runway</p>
+              <p className="mt-1 text-xl font-semibold text-ink-300">No active card</p>
               <p className="mt-0.5 text-sm text-ink-500">{recommendation.reason}</p>
             </>
           )}
         </div>
-        {recommendation.account ? (
+        {recommendation.card ? (
           <div className="text-right">
             <p className="text-2xl font-semibold text-accent-400 tabular">
-              {formatMoney(recommendation.account.remainingRunway)}
+              {recommendation.rate}x
             </p>
-            <p className="text-xs text-ink-500">still at 4x</p>
+            <p className="text-xs text-ink-500">on the next dollar</p>
           </div>
         ) : null}
       </section>
+
+      <div className="mb-6">
+        <ChargePlanner cards={positions} />
+      </div>
 
       {runway.length === 0 ? (
         <div className="card p-8 text-center">
           <p className="text-sm text-ink-300">No cap year is set up for {capYear}.</p>
           <p className="mt-1 text-sm text-ink-500">
-            Accounts appear here once they have a cap_years row for the year.
+            Cards appear here once they have a cap_years row for the year.
           </p>
         </div>
       ) : (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {runway.map((row) => {
             const remaining = Number(row.remaining_runway ?? 0);
+            const bonusRate = Number(row.bonus_multiplier ?? 1);
+            const baseRate = Number(row.base_multiplier ?? 1);
             const burn = computeBurnRate({
               capYear,
               capUsed: Number(row.cap_used ?? 0),
@@ -190,6 +228,7 @@ export default async function DashboardPage({
               asOf: today,
               capYear,
             });
+            const uplift = remaining * Math.max(0, bonusRate - baseRate);
 
             return (
               <article key={row.card_account_id} className="card flex flex-col gap-4 p-5">
@@ -197,7 +236,8 @@ export default async function DashboardPage({
                   <div>
                     <h2 className="font-semibold">{row.nickname}</h2>
                     <p className="mt-0.5 text-xs text-ink-500">
-                      {row.last4 ? `•••• ${row.last4}` : "no last4"}
+                      {products.get(row.card_account_id) ?? "Card"}
+                      {row.last4 ? ` · •••• ${row.last4}` : ""}
                       {row.entity ? ` · ${row.entity}` : ""}
                     </p>
                   </div>
@@ -214,7 +254,10 @@ export default async function DashboardPage({
 
                 <div>
                   <p className="text-3xl font-semibold tabular">{formatMoney(remaining)}</p>
-                  <p className="text-xs text-ink-500">remaining at {row.bonus_multiplier}x</p>
+                  <p className="text-xs text-ink-500">
+                    remaining at {bonusRate}x
+                    {uplift > 0 ? ` · ${formatNumber(uplift)} bonus points left` : ""}
+                  </p>
                 </div>
 
                 <CapMeter
@@ -224,6 +267,11 @@ export default async function DashboardPage({
                 />
 
                 <dl className="grid grid-cols-2 gap-y-2 text-sm">
+                  <dt className="text-ink-500">Rates</dt>
+                  <dd className="text-right tabular">
+                    {bonusRate}x bonus / {baseRate}x base
+                  </dd>
+
                   <dt className="text-ink-500">Burn rate</dt>
                   <dd className="text-right tabular">{formatMoney(burn.perDay)}/day</dd>
 

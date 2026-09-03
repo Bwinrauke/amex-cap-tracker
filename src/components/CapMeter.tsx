@@ -36,7 +36,7 @@ export function CapMeter({
       </div>
       {overflow > 0 || spendPastCap > 0 ? (
         <p className="mt-1 text-xs text-warn-400 tabular">
-          {formatMoney(spendPastCap || overflow)} already earning 1x past the cap
+          {formatMoney(spendPastCap || overflow)} past the cap, earning the base rate
         </p>
       ) : null}
     </div>

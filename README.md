@@ -1,23 +1,78 @@
 # 4x Cap Runway
 
-Tracks Amex Business Gold **4x bonus-category spend** against each card
-account's **$150,000 calendar-year cap**, so the next charge can be routed to
-whichever account still earns 4x.
+A points-maximizing tracker for business card spend. It watches bonus-category
+spend against each card's own annual cap and answers the question that
+actually matters: **which card should the next charge go on?**
+
+Built for a mixed portfolio — Amex Business Gold, Amex Business Platinum and
+Chase Ink Business cards all earn at different rates under different caps.
 
 Next.js 15 (App Router, TypeScript) on Vercel, reading an existing Supabase
 project.
 
 ## What it does
 
-- **Dashboard** — per-account cap meter, remaining runway, burn rate,
-  projected exhaust date and points, plus portfolio KPIs and a
-  "route the next charge to X" recommendation.
-- **Import** — upload an Amex CSV. Preview parses, classifies and diffs it
+- **Dashboard** — bonus points still capturable this year, per-card cap
+  meters, burn rate, projected exhaust date, and a recommendation naming the
+  card the next charge should go on.
+- **Charge planner** — enter an amount and see what every card would actually
+  earn on it, plus the best way to split a charge too large for one card's
+  bonus headroom.
+- **Import** — upload a statement CSV. Preview parses, classifies and diffs it
   against what is already stored **without writing anything**; commit writes
   only the rows you ticked.
-- **Charges** — the full log with each charge's 4x / 1x split.
-- **Accounts** — cap configuration and opening-balance provenance.
+- **Charges** — the full log with each charge's bonus / base split.
+- **Accounts** — per-card rates, caps and opening-balance provenance.
 - **Connections** — import history, and Plaid when it is switched on.
+
+## How the recommendation works
+
+Ranking by *remaining runway* is wrong the moment you hold more than one
+product: an Ink Cash earning 5x on a $25,000 cap is a better home for the next
+$1,000 than a Business Gold earning 4x with $150,000 of runway left.
+
+So `src/lib/cap.ts` ranks by **the rate a charge would actually earn**:
+
+- `marginalRate()` — what the next eligible dollar earns on a card: its bonus
+  rate while cap headroom remains, its base rate once that is gone.
+- `bonusPointsAvailable()` — runway times the *uplift* of the bonus rate over
+  that card's own base rate. A flat-rate card like Ink Unlimited has no uplift,
+  so it correctly shows nothing left to capture however much cap it nominally
+  has.
+- `rankCardsForCharge()` — what a charge of a given size earns on each card,
+  straddling the cap where the charge is larger than the runway left. A high
+  headline rate on a nearly-full card can lose to a lower rate with room.
+- `planCharge()` — the best split when no single card can absorb the charge at
+  its bonus rate. Filling the richest rate first is provably optimal here:
+  each card's bonus headroom is independent and its rate fixed, so this is the
+  fractional-knapsack case where greedy is the best choice.
+
+## Adding a card
+
+No code changes. Insert a `card_accounts` row, then a `cap_years` row carrying
+that card's terms for the year:
+
+| Card | `bonus_multiplier` | `base_multiplier` | `cap_amount` |
+| --- | --- | --- | --- |
+| Amex Business Gold | 4 | 1 | 150000 |
+| Chase Ink Business Preferred | 3 | 1 | 150000 |
+| Chase Ink Business Cash | 5 | 1 | 25000 |
+| Chase Ink Business Unlimited | 1.5 | 1.5 | *(any large number)* |
+
+Which charges count is decided per charge by `counts_toward_cap`, driven by
+`merchant_rules` at import time and correctable by hand in the preview.
+
+Two things the current schema cannot express, both of which would need a
+migration you would have to approve:
+
+- **Anniversary-year caps.** Chase Ink caps run on the cardmember anniversary
+  year, but `v_charge_allocation` derives the cap year with
+  `EXTRACT(year FROM posted_on)` — i.e. calendar year. A Chase card whose
+  anniversary is not 1 January will bucket its spend into the wrong cap year.
+- **Purchase-size thresholds.** Business Platinum's 1.5x applies only to
+  single purchases of $5,000 or more. `merchant_rules` matches on descriptor
+  text alone, with no amount condition, so this has to be ticked by hand in
+  the import preview.
 
 ## The database is pre-existing
 
@@ -32,8 +87,9 @@ the cap arithmetic, and never recomputes them in JavaScript:
 
 The one place JavaScript does cap arithmetic is `src/lib/cap.ts`, and only
 for things the views cannot cover: the import preview (rows that are not in
-the database yet) and forward projections (burn rate, exhaust date). The
-preview allocator mirrors `v_charge_allocation` exactly.
+the database yet), forward projections (burn rate, exhaust date) and the
+forward-looking "which card should this go on" ranking. The preview allocator
+mirrors `v_charge_allocation` exactly.
 
 ## Rules the code is built around
 
@@ -58,7 +114,8 @@ function — if they ever drift, the tests fail.
 
 ## The CSV parser
 
-Amex ships at least four layouts, so `src/lib/csv/amex.ts`:
+Amex alone ships at least four layouts, and Chase adds another, so
+`src/lib/csv/amex.ts`:
 
 - resolves columns **by header name**, with alias precedence (so
   `Appears On Your Statement As` beats `Extended Details` as the descriptor);
@@ -68,7 +125,9 @@ Amex ships at least four layouts, so `src/lib/csv/amex.ts`:
 - **detects the sign convention from the data** rather than assuming purchases
   are positive — it reads the direction off payment/credit lines where it can,
   and falls back to whichever side holds the bulk of the rows. Assuming either
-  convention would silently double or zero out a cap.
+  convention would silently double or zero out a cap. This is what lets a
+  Chase export — purchases written negative, `Post Date` rather than
+  `Posted Date` — parse correctly with no special-casing.
 
 ## Local development
 

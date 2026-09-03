@@ -172,7 +172,7 @@ export function ImportWizard({
         <div className="flex flex-wrap items-end gap-4">
           <div className="min-w-[220px] flex-1">
             <label htmlFor="file" className="mb-1.5 block text-sm text-ink-300">
-              Amex CSV
+              Statement CSV
             </label>
             <input
               id="file"
@@ -320,8 +320,8 @@ export function ImportWizard({
                     <th className="px-3 py-2.5 font-medium">Date</th>
                     <th className="px-3 py-2.5 font-medium">Merchant</th>
                     <th className="px-3 py-2.5 text-right font-medium">Amount</th>
-                    <th className="px-3 py-2.5 font-medium">4x?</th>
-                    <th className="px-3 py-2.5 text-right font-medium">At 4x</th>
+                    <th className="px-3 py-2.5 font-medium">Bonus?</th>
+                    <th className="px-3 py-2.5 text-right font-medium">At bonus</th>
                     <th className="px-3 py-2.5 text-right font-medium">Points</th>
                     <th className="px-3 py-2.5 font-medium">State</th>
                   </tr>

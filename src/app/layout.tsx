@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "4x Cap Runway",
   description:
-    "Track Amex Business Gold 4x bonus-category spend against each account's $150,000 calendar-year cap.",
+    "Track bonus-category spend against each card's annual cap, and route every charge to whichever card earns the most points.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -190,7 +190,7 @@ export type CapRunwayRow = {
   last_charge_on: string | null;
 }
 
-/** Per charge 4x/1x split. Authoritative — never recomputed in JS. */
+/** Per charge bonus/base split. Authoritative — never recomputed in JS. */
 export type ChargeAllocationRow = {
   id: string;
   card_account_id: string;

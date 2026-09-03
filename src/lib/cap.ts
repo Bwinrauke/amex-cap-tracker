@@ -243,53 +243,240 @@ export function projectExhaust(params: {
   };
 }
 
-export interface RoutingCandidate {
+/* -------------------------------------------------------------------------
+ * Points maximisation
+ *
+ * Cards differ in both rate and cap: an Ink Cash earning 5x on a $25k cap is
+ * a better home for the next $1,000 than a Business Gold earning 4x with
+ * $150k of runway left. So the ranking below is driven by the *rate a charge
+ * would actually earn*, never by how much runway a card has.
+ * ---------------------------------------------------------------------- */
+
+export interface CardPosition {
   cardAccountId: string;
   nickname: string;
-  remainingRunway: number;
+  product: string;
   accountStatus: string;
+  capAmount: number;
+  capUsed: number;
+  remainingRunway: number;
+  bonusMultiplier: number;
+  baseMultiplier: number;
 }
 
-export interface RoutingRecommendation {
-  account: RoutingCandidate | null;
-  runnerUp: RoutingCandidate | null;
-  /** Total runway across every active account. */
-  totalRemaining: number;
+/**
+ * Points per dollar the very next eligible dollar would earn on this card:
+ * the bonus rate while cap headroom remains, the base rate once it is gone.
+ */
+export function marginalRate(card: CardPosition): number {
+  return card.remainingRunway > 0 ? card.bonusMultiplier : card.baseMultiplier;
+}
+
+/**
+ * Bonus points still capturable on a card this year — the runway left times
+ * the uplift of the bonus rate over the base rate.
+ *
+ * This is the number that actually matters when deciding where to send spend:
+ * a card with runway but no uplift (a flat-rate Ink Unlimited, say) has
+ * nothing left to capture, however much cap it nominally has.
+ */
+export function bonusPointsAvailable(card: CardPosition): number {
+  return Math.max(0, card.remainingRunway) * Math.max(0, card.bonusMultiplier - card.baseMultiplier);
+}
+
+export interface CardEarning {
+  card: CardPosition;
+  amountAtBonus: number;
+  amountAtBase: number;
+  points: number;
+  /** Blended points per dollar for this specific charge. */
+  effectiveRate: number;
+  /** Points given up by choosing this card over the best one. */
+  pointsLostVsBest: number;
+}
+
+/**
+ * Ranks every active card by what a charge of `amount` would actually earn
+ * on it, straddling the cap where the charge is bigger than the runway left.
+ */
+export function rankCardsForCharge(cards: CardPosition[], amount: number): CardEarning[] {
+  const ranked = cards
+    .filter((card) => card.accountStatus === "active")
+    .map((card) => {
+      const split = splitAtCap({
+        amount,
+        usedBefore: card.capUsed,
+        capAmount: card.capAmount,
+        countsTowardCap: true,
+        bonusMultiplier: card.bonusMultiplier,
+        baseMultiplier: card.baseMultiplier,
+      });
+
+      return {
+        card,
+        amountAtBonus: split.amountAtBonus,
+        amountAtBase: split.amountAtBase,
+        points: split.points,
+        effectiveRate: amount > 0 ? split.points / amount : marginalRate(card),
+        pointsLostVsBest: 0,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.points - a.points ||
+        b.card.remainingRunway - a.card.remainingRunway ||
+        a.card.nickname.localeCompare(b.card.nickname),
+    );
+
+  const best = ranked[0]?.points ?? 0;
+  for (const entry of ranked) entry.pointsLostVsBest = best - entry.points;
+
+  return ranked;
+}
+
+export interface ChargeLeg {
+  card: CardPosition;
+  amount: number;
+  rate: number;
+  points: number;
+}
+
+export interface ChargePlan {
+  legs: ChargeLeg[];
+  totalPoints: number;
+  /** Points from putting the whole charge on the single best card. */
+  singleCardPoints: number;
+  /** What splitting the charge gains over using one card. */
+  pointsGainedBySplitting: number;
+  /** True when the charge does not fit in one card's bonus headroom. */
+  requiresSplit: boolean;
+}
+
+/**
+ * Works out the highest-earning way to place a charge, splitting it across
+ * cards when that earns more.
+ *
+ * Filling the highest rate first is provably optimal here: each card's bonus
+ * headroom is independent and its rate is fixed, so this is the fractional
+ * knapsack case where the greedy choice is the best one.
+ */
+export function planCharge(cards: CardPosition[], amount: number): ChargePlan {
+  const active = cards.filter((card) => card.accountStatus === "active");
+
+  const singleCardPoints = rankCardsForCharge(active, amount)[0]?.points ?? 0;
+
+  // Every bonus bucket, richest rate first, then any base-rate capacity.
+  const buckets = active
+    .map((card) => ({
+      card,
+      capacity: Math.max(0, Math.min(card.remainingRunway, card.capAmount)),
+      rate: card.bonusMultiplier,
+    }))
+    .filter((bucket) => bucket.capacity > 0)
+    .sort((a, b) => b.rate - a.rate || b.capacity - a.capacity);
+
+  const legs: ChargeLeg[] = [];
+  let left = amount;
+
+  for (const bucket of buckets) {
+    if (left <= 0) break;
+    const take = Math.min(left, bucket.capacity);
+    if (take <= 0) continue;
+    legs.push({ card: bucket.card, amount: take, rate: bucket.rate, points: take * bucket.rate });
+    left -= take;
+  }
+
+  // Anything left over earns the best base rate available.
+  if (left > 0 && active.length > 0) {
+    const fallback = [...active].sort((a, b) => b.baseMultiplier - a.baseMultiplier)[0];
+    const existing = legs.find((leg) => leg.card.cardAccountId === fallback.cardAccountId);
+    const points = left * fallback.baseMultiplier;
+
+    if (existing && existing.rate === fallback.baseMultiplier) {
+      existing.amount += left;
+      existing.points += points;
+    } else {
+      legs.push({
+        card: fallback,
+        amount: left,
+        rate: fallback.baseMultiplier,
+        points,
+      });
+    }
+    left = 0;
+  }
+
+  const totalPoints = legs.reduce((sum, leg) => sum + leg.points, 0);
+
+  return {
+    legs,
+    totalPoints,
+    singleCardPoints,
+    pointsGainedBySplitting: Math.max(0, totalPoints - singleCardPoints),
+    requiresSplit: legs.length > 1,
+  };
+}
+
+export interface CardRecommendation {
+  card: CardPosition | null;
+  runnerUp: CardPosition | null;
+  /** Rate the recommended card earns on the next eligible dollar. */
+  rate: number;
+  /** Bonus points still capturable across every active card. */
+  bonusPointsAvailable: number;
   reason: string;
 }
 
 /**
- * Picks the account the next 4x charge should go to: the active account with
- * the most remaining runway, so the bonus rate is used before any account is
- * pushed past its cap.
+ * Names the card the next eligible charge should go on.
+ *
+ * Ranked by the rate the next dollar earns, not by remaining runway — with
+ * mixed products those disagree, and the rate is the one that earns points.
+ * Runway only breaks ties between cards paying the same rate.
  */
-export function recommendRouting(candidates: RoutingCandidate[]): RoutingRecommendation {
-  const active = candidates
-    .filter((c) => c.accountStatus === "active")
-    .sort((a, b) => b.remainingRunway - a.remainingRunway || a.nickname.localeCompare(b.nickname));
+export function recommendCard(cards: CardPosition[]): CardRecommendation {
+  const active = cards
+    .filter((card) => card.accountStatus === "active")
+    .sort(
+      (a, b) =>
+        marginalRate(b) - marginalRate(a) ||
+        b.remainingRunway - a.remainingRunway ||
+        a.nickname.localeCompare(b.nickname),
+    );
 
-  const totalRemaining = active.reduce((sum, c) => sum + c.remainingRunway, 0);
+  const totalBonusAvailable = active.reduce((sum, card) => sum + bonusPointsAvailable(card), 0);
 
   if (active.length === 0) {
-    return { account: null, runnerUp: null, totalRemaining: 0, reason: "No active card accounts." };
-  }
-
-  const [best, second = null] = active;
-
-  if (best.remainingRunway <= 0) {
     return {
-      account: null,
-      runnerUp: null,
-      totalRemaining,
-      reason: "Every active account has reached its 4x cap for the year.",
+      card: null, runnerUp: null, rate: 0, bonusPointsAvailable: 0,
+      reason: "No active card accounts.",
     };
   }
 
-  const reason = second && second.remainingRunway > 0
-    ? `${formatShortMoney(best.remainingRunway)} of runway left, ${formatShortMoney(best.remainingRunway - second.remainingRunway)} more than ${second.nickname}.`
-    : `${formatShortMoney(best.remainingRunway)} of runway left — the only account with room.`;
+  const [best, second = null] = active;
+  const rate = marginalRate(best);
 
-  return { account: best, runnerUp: second, totalRemaining, reason };
+  if (bonusPointsAvailable(best) <= 0) {
+    return {
+      card: best,
+      runnerUp: second,
+      rate,
+      bonusPointsAvailable: totalBonusAvailable,
+      reason:
+        totalBonusAvailable > 0
+          ? `Every bonus category is capped out; ${best.nickname} pays the best remaining rate at ${rate}x.`
+          : `No bonus rate is left this year — ${best.nickname} earns ${rate}x flat.`,
+    };
+  }
+
+  const detail =
+    second && marginalRate(second) === rate
+      ? `${formatShortMoney(best.remainingRunway)} of runway at ${rate}x, tied on rate with ${second.nickname}.`
+      : second
+        ? `Earns ${rate}x versus ${marginalRate(second)}x on ${second.nickname}, with ${formatShortMoney(best.remainingRunway)} of runway left.`
+        : `Earns ${rate}x with ${formatShortMoney(best.remainingRunway)} of runway left.`;
+
+  return { card: best, runnerUp: second, rate, bonusPointsAvailable: totalBonusAvailable, reason: detail };
 }
 
 function formatShortMoney(value: number): string {
