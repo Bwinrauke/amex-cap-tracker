@@ -23,12 +23,26 @@ export async function getViewer(): Promise<Viewer | null> {
     .maybeSingle();
 
   if (!profile) {
-    // Authenticated but no profile row (the handle_new_user trigger should
-    // have made one). Treat as least privilege rather than failing open.
-    return { userId: user.id, email: user.email ?? "", role: "viewer" };
+    // Signed in but not on the allow-list: handle_new_user() deliberately
+    // withholds a profile, and every RLS policy gates on having one. Grant
+    // nothing rather than falling back to a viewer.
+    return null;
   }
 
   return { userId: profile.id, email: profile.email, role: profile.role };
+}
+
+/**
+ * The authenticated user, whether or not they are allowed in. Used only to
+ * tell "never signed in" apart from "signed in but not permitted", so each
+ * gets the right page instead of a redirect loop.
+ */
+export async function getAuthUser() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
 }
 
 export class AuthError extends Error {

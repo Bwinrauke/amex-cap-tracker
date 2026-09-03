@@ -180,9 +180,14 @@ npm run typecheck
 ## Auth
 
 Supabase magic link via `@supabase/ssr`. `middleware.ts` refreshes the session
-and redirects anyone without one to `/login`. The first user to sign up is
-already an admin (the database's `handle_new_user` trigger handles that);
-everyone after is a viewer.
+and redirects anyone without one to `/login`.
+
+Who may hold an account is controlled by the `allowed_emails` table:
+`handle_new_user()` creates a profile only for a listed address, and every RLS
+policy gates on having a profile. An address that is not listed can complete a
+magic link and still read nothing — including through the public REST API,
+which is why this lives in the database rather than in the app. The first
+allowed profile becomes admin; everyone after is a viewer.
 
 For magic links to land correctly, add your deployed origin and
 `https://<your-domain>/auth/callback` to the Supabase project's allowed

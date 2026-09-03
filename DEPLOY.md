@@ -36,20 +36,30 @@ dashboard, under **Authentication → URL Configuration**:
 - Set **Site URL** to `https://<your-app>.vercel.app`
 - Add `https://<your-app>.vercel.app/auth/callback` to **Redirect URLs**
 
-## 4. Sign in first — before sharing the URL
+## 4. Only your address can hold an account
 
-The database has **no users yet**, and the `handle_new_user` trigger makes the
-first account to sign in an **admin**, with write access to every card and
-charge.
+Access is restricted at the database level, not just in the app. The
+`allowed_emails` table lists who may have an account, and `handle_new_user()`
+creates a profile only for those addresses. Every RLS policy gates on having
+a profile, so anyone else can complete a magic link and still read nothing —
+including through the public REST API, which an app-only check could not
+prevent, since the anon key is public by design.
 
-The deployed site is reachable by anyone who has the link, and anyone can
-request a magic link from it. So sign in as yourself immediately after the
-first deploy, before the URL goes anywhere. Everyone who signs in after you
-is created as a read-only `viewer`.
+`ben@cityjeans.com` is on the list, and will become admin on first sign-in.
+Anyone else lands on a "no access" page.
 
-Once you are in, consider turning off new signups in Supabase under
-**Authentication → Sign In / Providers** so no one else can create an account
-at all. Existing users keep working.
+To let someone else in later:
+
+```sql
+insert into allowed_emails (email, note) values ('them@example.com', 'why');
+```
+
+They are created as a read-only `viewer`. To revoke, delete their
+`allowed_emails` row **and** their `profiles` row — removing the allow-list
+entry alone does not remove access already granted.
+
+As a second layer you can also turn off new signups entirely in Supabase under
+**Authentication → Sign In / Providers**, once you have signed in.
 
 ## Checking it worked
 

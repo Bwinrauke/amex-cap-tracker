@@ -1,4 +1,4 @@
-import { getViewer } from "@/lib/auth";
+import { getAuthUser, getViewer } from "@/lib/auth";
 import { Nav } from "./Nav";
 import { redirect } from "next/navigation";
 
@@ -15,7 +15,11 @@ export async function Shell({
   children: React.ReactNode;
 }) {
   const viewer = await getViewer();
-  if (!viewer) redirect("/login");
+  if (!viewer) {
+    // A session without a profile means the address is not permitted; sending
+    // them to /login would just bounce them back and forth.
+    redirect((await getAuthUser()) ? "/auth/not-authorized" : "/login");
+  }
 
   return (
     <div className="min-h-screen">
