@@ -61,6 +61,44 @@ entry alone does not remove access already granted.
 As a second layer you can also turn off new signups entirely in Supabase under
 **Authentication → Sign In / Providers**, once you have signed in.
 
+## Using your own domain
+
+Works with any domain, on any registrar. Deploy and confirm the app works on
+the `.vercel.app` URL first — debugging DNS and a broken build at the same
+time is miserable.
+
+1. **Vercel → Project → Settings → Domains → Add**, and enter the domain.
+2. Vercel shows the exact DNS record to create. It differs by shape:
+
+   | What you enter | Record Vercel asks for |
+   | --- | --- |
+   | `app.example.com` (subdomain) | `CNAME` → `cname.vercel-dns.com` |
+   | `example.com` (root/apex) | `A` → the IP Vercel shows, or `ALIAS`/`ANAME` where the registrar supports it |
+
+3. Add that record at whoever runs the domain's DNS. Certificates are issued
+   automatically once it resolves; propagation is usually minutes.
+
+**Do not repoint a domain that already serves a website.** Changing the `A` or
+`CNAME` for a name that currently loads a storefront or marketing site will
+take that site down. Put the app on a subdomain that is not in use instead.
+Adding a web record does not affect `MX` records, so email keeps working.
+
+### Then update both of these, or sign-in breaks silently
+
+A magic link is generated against a configured URL. Point it at the wrong host
+and the link either 404s or bounces back to the login page, with no error
+explaining why.
+
+- **Vercel → Environment Variables**: set `NEXT_PUBLIC_SITE_URL` to
+  `https://<your-domain>`, then **redeploy** — env changes do not apply to an
+  existing deployment.
+- **Supabase → Authentication → URL Configuration**: set **Site URL** to the
+  same value, and add `https://<your-domain>/auth/callback` to **Redirect
+  URLs**.
+
+Leave the old `.vercel.app` callback in the redirect list while you switch, so
+a mistake in the DNS does not lock you out of the app entirely.
+
 ## Checking it worked
 
 The dashboard should show ten cards: three Amex Gold and seven Chase Ink, with
