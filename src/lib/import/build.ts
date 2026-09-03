@@ -82,6 +82,11 @@ export interface BuildPreviewInput {
   capYears: CapYearRow[];
   /** Cap already used per year before this file, from v_cap_runway. */
   capUsedByYear: Record<number, number>;
+  /**
+   * Categories the receiving card earns its bonus rate on. Null trusts the
+   * merchant rule alone.
+   */
+  cardBonusCategories?: string[] | null;
 }
 
 export interface BuildPreviewResult {
@@ -109,6 +114,7 @@ export function buildPreview(input: BuildPreviewInput): BuildPreviewResult {
     const classification = classifyCharge(
       { merchant: charge.merchant, descriptor: charge.descriptor, category: charge.category },
       input.rules,
+      input.cardBonusCategories ?? null,
     );
 
     const fingerprint = computeFingerprint({

@@ -28,6 +28,7 @@ export async function POST(request: Request) {
       existing: context.existing,
       capYears: context.capYears,
       capUsedByYear: context.capUsedByYear,
+      cardBonusCategories: context.cardAccount.bonus_categories,
     });
 
     return Response.json({

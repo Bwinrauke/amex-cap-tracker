@@ -19,6 +19,13 @@ export interface Classification {
 export function classifyCharge(
   input: { merchant: string; descriptor: string | null; category?: string | null },
   rules: MerchantRuleRow[],
+  /**
+   * Categories the receiving card earns its bonus rate on. A rule saying a
+   * category counts is not enough — the card has to earn the bonus on it.
+   * Shipping is a bonus category on Chase Ink but not on an Amex Gold whose
+   * selected category is advertising. Pass null to trust the rule alone.
+   */
+  cardBonusCategories: string[] | null = null,
 ): Classification {
   const haystack = `${input.descriptor ?? ""} ${input.merchant}`.toLowerCase();
   const ordered = [...rules].sort((a, b) => a.priority - b.priority || a.pattern.localeCompare(b.pattern));
@@ -33,10 +40,14 @@ export function classifyCharge(
       continue;
     }
     if (regex.test(haystack)) {
+      const cardEarnsBonus =
+        cardBonusCategories === null ||
+        (rule.category !== null && cardBonusCategories.includes(rule.category));
+
       return {
         merchant: rule.merchant,
         category: rule.category,
-        countsTowardCap: rule.counts_toward_cap,
+        countsTowardCap: rule.counts_toward_cap && cardEarnsBonus,
         matchedPattern: rule.pattern,
       };
     }

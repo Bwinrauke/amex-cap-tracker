@@ -5,6 +5,8 @@ import {
   daysBetween,
   projectExhaust,
   capYearWindow,
+  earnsBonusOn,
+  forCategory,
   recommendCard,
   rankCardsForCharge,
   planCharge,
@@ -284,6 +286,7 @@ function card(overrides: Partial<CardPosition> & { nickname: string }): CardPosi
     remainingRunway: 150_000,
     bonusMultiplier: 4,
     baseMultiplier: 1,
+    bonusCategories: null,
     ...overrides,
   };
 }
@@ -368,6 +371,72 @@ describe("recommendCard", () => {
 
   it("handles having no cards", () => {
     expect(recommendCard([]).card).toBeNull();
+  });
+});
+
+describe("per-card bonus categories", () => {
+  // The real portfolio: Amex Gold earns 4x on advertising only, Chase Ink
+  // earns 3x on shipping only.
+  const gold = card({
+    nickname: "Hai Gold ADS", product: "Business Gold",
+    bonusMultiplier: 4, baseMultiplier: 1,
+    capAmount: 150_000, capUsed: 0, remainingRunway: 150_000,
+    bonusCategories: ["advertising"],
+  });
+  const ink = card({
+    nickname: "Noni ETJ Ink NEW", product: "Chase Ink Business Preferred",
+    bonusMultiplier: 3, baseMultiplier: 1,
+    capAmount: 150_000, capUsed: 31_090, remainingRunway: 118_910,
+    bonusCategories: ["shipping"],
+  });
+
+  it("knows which categories a card earns a bonus on", () => {
+    expect(earnsBonusOn(gold, "advertising")).toBe(true);
+    expect(earnsBonusOn(gold, "shipping")).toBe(false);
+    expect(earnsBonusOn(ink, "shipping")).toBe(true);
+  });
+
+  it("treats a null category list as earning on everything", () => {
+    const anyCard = card({ nickname: "Legacy", bonusCategories: null });
+    expect(earnsBonusOn(anyCard, "shipping")).toBe(true);
+  });
+
+  it("drops an ineligible card to its base rate rather than hiding it", () => {
+    const goldOnShipping = forCategory(gold, "shipping");
+    expect(goldOnShipping.bonusMultiplier).toBe(1);
+    expect(bonusPointsAvailable(goldOnShipping)).toBe(0);
+  });
+
+  it("routes shipping to the Ink, not the higher-rate Gold", () => {
+    // This is the bug the categories fix: ranking on headline rate alone
+    // sent shipping to the 4x Gold, which actually earns 1x on it.
+    const shipping = recommendCard([gold, ink].map((c) => forCategory(c, "shipping")));
+    expect(shipping.card?.nickname).toBe("Noni ETJ Ink NEW");
+    expect(shipping.rate).toBe(3);
+  });
+
+  it("still routes advertising to the Gold", () => {
+    const ads = recommendCard([gold, ink].map((c) => forCategory(c, "advertising")));
+    expect(ads.card?.nickname).toBe("Hai Gold ADS");
+    expect(ads.rate).toBe(4);
+  });
+
+  it("scores a shipping charge correctly on each card", () => {
+    const ranked = rankCardsForCharge(
+      [gold, ink].map((c) => forCategory(c, "shipping")),
+      10_000,
+    );
+    expect(ranked[0].card.nickname).toBe("Noni ETJ Ink NEW");
+    expect(ranked[0].points).toBe(30_000);
+    // The Gold earns 1x on shipping, not 4x — a 30,000 point difference.
+    expect(ranked[1].points).toBe(10_000);
+  });
+
+  it("counts only eligible runway as capturable bonus points", () => {
+    const forShipping = [gold, ink].map((c) => forCategory(c, "shipping"));
+    const total = forShipping.reduce((sum, c) => sum + bonusPointsAvailable(c), 0);
+    // Only the Ink's 118,910 of runway counts, at a 2x uplift.
+    expect(total).toBe(237_820);
   });
 });
 

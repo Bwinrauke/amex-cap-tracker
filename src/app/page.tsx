@@ -9,6 +9,7 @@ import {
   bonusPointsAvailable,
   capYearWindow,
   computeBurnRate,
+  forCategory,
   projectExhaust,
   recommendCard,
   type CardPosition,
@@ -40,7 +41,9 @@ export default async function DashboardPage({
       supabase.from("v_monthly_spend").select("*").eq("cap_year", capYear),
       supabase
         .from("card_accounts")
-        .select("id, product, cap_year_start_month, cap_year_start_day"),
+        .select(
+          "id, product, cap_year_start_month, cap_year_start_day, bonus_categories",
+        ),
     ]);
 
   const runway = (runwayData ?? []) as CapRunwayRow[];
@@ -51,7 +54,11 @@ export default async function DashboardPage({
     (
       (accountData ?? []) as Pick<
         CardAccountRow,
-        "id" | "product" | "cap_year_start_month" | "cap_year_start_day"
+        | "id"
+        | "product"
+        | "cap_year_start_month"
+        | "cap_year_start_day"
+        | "bonus_categories"
       >[]
     ).map((a) => [a.id, a]),
   );
@@ -79,6 +86,7 @@ export default async function DashboardPage({
     remainingRunway: Number(row.remaining_runway ?? 0),
     bonusMultiplier: Number(row.bonus_multiplier ?? 1),
     baseMultiplier: Number(row.base_multiplier ?? 1),
+    bonusCategories: accounts.get(row.card_account_id)?.bonus_categories ?? null,
   }));
 
   const totals = runway.reduce(
@@ -91,7 +99,18 @@ export default async function DashboardPage({
     { capUsed: 0, remaining: 0, points: 0, pastCap: 0 },
   );
 
-  const recommendation = recommendCard(positions);
+  const categories = [
+    ...new Set(
+      positions
+        .filter((card) => card.accountStatus === "active")
+        .flatMap((card) => card.bonusCategories ?? []),
+    ),
+  ].sort();
+
+  const recommendations = categories.map((category) => ({
+    category,
+    result: recommendCard(positions.map((card) => forCategory(card, category))),
+  }));
 
   // Bonus points still on the table: what the remaining runway is worth at
   // each card's uplift over its own base rate.
@@ -190,35 +209,50 @@ export default async function DashboardPage({
         />
       </section>
 
-      <section className="card mb-6 flex flex-wrap items-center justify-between gap-4 border-accent-500/25 bg-accent-500/5 p-5">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-accent-400">
-            Route the next charge to
+      <section className="mb-6 grid gap-3 md:grid-cols-2">
+        {recommendations.length === 0 ? (
+          <p className="card p-5 text-sm text-ink-500">
+            No active card has a bonus category set, so there is nothing to route.
           </p>
-          {recommendation.card ? (
-            <>
-              <p className="mt-1 text-xl font-semibold">{recommendation.card.nickname}</p>
-              <p className="mt-0.5 text-sm text-ink-300">{recommendation.reason}</p>
-            </>
-          ) : (
-            <>
-              <p className="mt-1 text-xl font-semibold text-ink-300">No active card</p>
-              <p className="mt-0.5 text-sm text-ink-500">{recommendation.reason}</p>
-            </>
-          )}
-        </div>
-        {recommendation.card ? (
-          <div className="text-right">
-            <p className="text-2xl font-semibold text-accent-400 tabular">
-              {recommendation.rate}x
-            </p>
-            <p className="text-xs text-ink-500">on the next dollar</p>
-          </div>
-        ) : null}
+        ) : (
+          recommendations.map(({ category, result }) => (
+            <div
+              key={category}
+              className="card flex flex-wrap items-center justify-between gap-4 border-accent-500/25 bg-accent-500/5 p-5"
+            >
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-wide text-accent-400">
+                  Next {category} charge
+                </p>
+                {result.card ? (
+                  <>
+                    <p className="mt-1 truncate text-xl font-semibold">
+                      {result.card.nickname}
+                    </p>
+                    <p className="mt-0.5 text-sm text-ink-300">{result.reason}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-xl font-semibold text-ink-300">No card with room</p>
+                    <p className="mt-0.5 text-sm text-ink-500">{result.reason}</p>
+                  </>
+                )}
+              </div>
+              {result.card ? (
+                <div className="text-right">
+                  <p className="text-2xl font-semibold text-accent-400 tabular">
+                    {result.rate}x
+                  </p>
+                  <p className="text-xs text-ink-500">on the next dollar</p>
+                </div>
+              ) : null}
+            </div>
+          ))
+        )}
       </section>
 
       <div className="mb-6">
-        <ChargePlanner cards={positions} />
+        <ChargePlanner cards={positions} categories={categories} />
       </div>
 
       {runway.length === 0 ? (
@@ -288,6 +322,12 @@ export default async function DashboardPage({
                 />
 
                 <dl className="grid grid-cols-2 gap-y-2 text-sm">
+                  <dt className="text-ink-500">Bonus on</dt>
+                  <dd className="text-right">
+                    {(accounts.get(row.card_account_id)?.bonus_categories ?? []).join(", ") ||
+                      "any category"}
+                  </dd>
+
                   <dt className="text-ink-500">Cap year</dt>
                   <dd className="text-right tabular">
                     {formatDate(window.start)} – {formatDate(window.end)}

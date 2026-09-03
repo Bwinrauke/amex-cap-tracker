@@ -46,6 +46,15 @@ export async function POST() {
         .map((a) => [a.account_id, a.card_account_id as string]),
     );
 
+    // Bonus categories are per card, so a synced charge is only cap-eligible
+    // when the card it lands on actually earns the bonus on that category.
+    const { data: cardRows } = await supabase
+      .from("card_accounts")
+      .select("id, bonus_categories");
+    const bonusCategoriesFor = new Map(
+      (cardRows ?? []).map((c) => [c.id, c.bonus_categories]),
+    );
+
     let inserted = 0;
     let unmapped = 0;
     const errors: string[] = [];
@@ -84,6 +93,7 @@ export async function POST() {
           const classification = classifyCharge(
             { merchant, descriptor: transaction.name },
             rules,
+            bonusCategoriesFor.get(cardAccountId) ?? null,
           );
 
           payload.push({

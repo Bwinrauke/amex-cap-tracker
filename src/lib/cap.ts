@@ -286,6 +286,27 @@ export interface CardPosition {
   remainingRunway: number;
   bonusMultiplier: number;
   baseMultiplier: number;
+  /** Categories this card earns its bonus rate on. Null means all of them. */
+  bonusCategories?: string[] | null;
+}
+
+/** Whether this card earns its bonus rate on a given spend category. */
+export function earnsBonusOn(card: CardPosition, category: string | null): boolean {
+  if (card.bonusCategories === null || card.bonusCategories === undefined) return true;
+  return category !== null && card.bonusCategories.includes(category);
+}
+
+/**
+ * Re-states a card for one spend category.
+ *
+ * A card that does not earn its bonus on this category still takes the
+ * charge — it just earns the base rate and consumes none of its cap. Folding
+ * that into the rates lets every ranking function below stay category-blind,
+ * and keeps the card visible in comparisons rather than silently dropped.
+ */
+export function forCategory(card: CardPosition, category: string | null): CardPosition {
+  if (earnsBonusOn(card, category)) return card;
+  return { ...card, bonusMultiplier: card.baseMultiplier };
 }
 
 /**

@@ -75,14 +75,23 @@ default to 1 January, so calendar-year cards behave exactly as before.
 A cap year is named by the calendar year it **opens** in: a November-anniversary
 card's 1 Nov 2025 - 31 Oct 2026 period is `year = 2025`.
 
+### Bonus categories are per card
+
+`merchant_rules` says what category a merchant falls in and whether that
+category can count at all; `card_accounts.bonus_categories` says which
+categories *this* card earns its bonus rate on. A charge is cap-eligible only
+when both agree, so UPS counts on a Chase Ink (shipping) and not on an Amex
+Gold whose selected category is advertising.
+
+NULL means "trust the rule alone", which is the behaviour from before the
+column existed.
+
+This is why the dashboard shows one recommendation **per category** rather
+than a single answer: ranking on headline rate alone would send shipping to
+the 4x Gold, where it actually earns 1x.
+
 ### Known gaps
 
-- **Eligibility is global, not per card.** `merchant_rules.counts_toward_cap`
-  is one boolean for every card, but bonus categories differ by product —
-  shipping earns 3x on Ink Preferred while an Amex Gold only earns its bonus
-  rate on the categories that card has selected. Until eligibility is per
-  card, a charge in a category one card treats as a bonus and another does not
-  has to be corrected by hand in the import preview.
 - **Purchase-size thresholds.** Business Platinum's 1.5x applies only to
   single purchases of $5,000 or more. `merchant_rules` matches on descriptor
   text alone, with no amount condition.

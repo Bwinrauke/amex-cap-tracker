@@ -67,7 +67,7 @@ export async function readImportForm(
 }
 
 export interface ImportContext {
-  cardAccount: Pick<CardAccountRow, "id" | "nickname" | "last4">;
+  cardAccount: Pick<CardAccountRow, "id" | "nickname" | "last4" | "bonus_categories">;
   rules: MerchantRuleRow[];
   capYears: CapYearRow[];
   existing: { id: string; fingerprint: string | null }[];
@@ -81,7 +81,7 @@ export async function loadImportContext(
 ): Promise<ImportContext | { error: Response }> {
   const { data: cardAccount, error: accountError } = await supabase
     .from("card_accounts")
-    .select("id, nickname, last4")
+    .select("id, nickname, last4, bonus_categories")
     .eq("id", cardAccountId)
     .maybeSingle();
 

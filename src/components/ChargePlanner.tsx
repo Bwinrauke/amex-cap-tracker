@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { planCharge, rankCardsForCharge, type CardPosition } from "@/lib/cap";
+import { forCategory, planCharge, rankCardsForCharge, type CardPosition } from "@/lib/cap";
 import { formatMoney, formatNumber } from "@/lib/format";
 
 /**
@@ -9,12 +9,26 @@ import { formatMoney, formatNumber } from "@/lib/format";
  * of a given size would actually earn, and shows the best split when no
  * single card can absorb it all at its bonus rate.
  */
-export function ChargePlanner({ cards }: { cards: CardPosition[] }) {
+export function ChargePlanner({
+  cards,
+  categories,
+}: {
+  cards: CardPosition[];
+  categories: string[];
+}) {
   const [amountText, setAmountText] = useState("10000");
+  const [category, setCategory] = useState(categories[0] ?? "");
   const amount = Math.max(0, Number(amountText.replace(/[^0-9.]/g, "")) || 0);
 
-  const ranked = useMemo(() => rankCardsForCharge(cards, amount), [cards, amount]);
-  const plan = useMemo(() => planCharge(cards, amount), [cards, amount]);
+  // Rates depend on the category: a card that does not earn its bonus on this
+  // one still takes the charge, at its base rate.
+  const adjusted = useMemo(
+    () => cards.map((card) => forCategory(card, category || null)),
+    [cards, category],
+  );
+
+  const ranked = useMemo(() => rankCardsForCharge(adjusted, amount), [adjusted, amount]);
+  const plan = useMemo(() => planCharge(adjusted, amount), [adjusted, amount]);
 
   if (cards.length === 0) return null;
 
@@ -24,10 +38,31 @@ export function ChargePlanner({ cards }: { cards: CardPosition[] }) {
         <div>
           <h2 className="font-semibold">Where should the next charge go?</h2>
           <p className="mt-0.5 text-sm text-ink-500">
-            Ranked by points actually earned, allowing for each card&apos;s cap.
+            Ranked by points actually earned, allowing for each card&apos;s cap and
+            which categories it earns a bonus on.
           </p>
         </div>
-        <div>
+        <div className="flex items-end gap-3">
+          {categories.length > 0 ? (
+            <div>
+              <label htmlFor="category" className="mb-1 block text-xs text-ink-500">
+                Category
+              </label>
+              <select
+                id="category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm outline-none focus:border-brand-500"
+              >
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          <div>
           <label htmlFor="amount" className="mb-1 block text-xs text-ink-500">
             Charge amount
           </label>
@@ -40,6 +75,7 @@ export function ChargePlanner({ cards }: { cards: CardPosition[] }) {
               onChange={(e) => setAmountText(e.target.value)}
               className="w-28 bg-transparent text-sm outline-none tabular"
             />
+          </div>
           </div>
         </div>
       </header>

@@ -38,6 +38,11 @@ export type CardAccountRow = {
   /** Month/day the bonus cap year opens. 1/1 for calendar-year cards. */
   cap_year_start_month: number;
   cap_year_start_day: number;
+  /**
+   * Categories this card earns its bonus rate on, matched against
+   * merchant_rules.category. NULL falls back to the rule's own flag.
+   */
+  bonus_categories: string[] | null;
   ads_account: string | null;
   sort_order: number;
   notes: string | null;
