@@ -171,7 +171,6 @@ npm run typecheck
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Publishable key |
-| `NEXT_PUBLIC_SITE_URL` | recommended | Base URL for magic-link redirects |
 | `SUPABASE_SERVICE_ROLE_KEY` | Plaid only | `plaid_items` is deny-all under RLS |
 | `PLAID_ENABLED` | no | Plaid is off unless this is exactly `true` |
 | `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` | Plaid only | Plaid credentials |
@@ -189,9 +188,10 @@ magic link and still read nothing — including through the public REST API,
 which is why this lives in the database rather than in the app. The first
 allowed profile becomes admin; everyone after is a viewer.
 
-For magic links to land correctly, add your deployed origin and
-`https://<your-domain>/auth/callback` to the Supabase project's allowed
-redirect URLs.
+Magic-link redirects are derived from the host the browser is on, so the same
+deployment works on a `.vercel.app` URL and a custom domain without
+reconfiguration. Each host's `/auth/callback` does have to be in the Supabase
+project's allowed redirect URLs.
 
 ## Plaid
 

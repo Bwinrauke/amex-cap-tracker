@@ -18,12 +18,12 @@ Both are public values, safe in the browser:
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://wballdjmvafqxfkmzhzw.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_O8ffPch4JDpcio63RA1QUg_SB56JhoE` |
 
-After the first deploy, add one more with the domain Vercel gives you, then
-redeploy so magic links point at the right host:
+Set both as **Config**, not Secret. Anything prefixed `NEXT_PUBLIC_` is
+compiled into the browser bundle by design, so marking it Secret protects
+nothing — and Vercel makes saved secrets write-only, so you could not edit it
+afterwards without deleting and recreating it.
 
-| Name | Value |
-| --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | `https://<your-app>.vercel.app`, then `https://apps.cityjeans.com` once the domain is live |
+The Supabase anon key is meant to be public; RLS is what protects the data.
 
 Nothing else is required. `SUPABASE_SERVICE_ROLE_KEY` and the `PLAID_*`
 variables are only needed if Plaid is switched on, which it is not by default.
@@ -105,17 +105,16 @@ The storefront's own records are untouched — this only adds the `apps` label.
 Certificates are issued automatically once the record resolves — usually
 minutes.
 
-### 3. Point sign-in at the new host
+### 3. Let Supabase accept the new host
 
-A magic link is generated against a configured URL. Miss either of these and
-the link bounces back to the login page with no error explaining why.
+The magic link comes back to whichever host you signed in from — the app
+derives that itself, so there is no base-URL variable to set. Supabase does
+have to be told the host is allowed, or the link bounces back to the login
+page with no error explaining why.
 
-- **Vercel → Environment Variables**: set
-  `NEXT_PUBLIC_SITE_URL=https://apps.cityjeans.com`, then **redeploy** — env
-  changes do not apply to an existing deployment.
-- **Supabase → Authentication → URL Configuration**: set **Site URL** to
-  `https://apps.cityjeans.com`, and add
-  `https://apps.cityjeans.com/auth/callback` to **Redirect URLs**.
+**Supabase → Authentication → URL Configuration**: set **Site URL** to
+`https://apps.cityjeans.com`, and add `https://apps.cityjeans.com/auth/callback`
+to **Redirect URLs**.
 
 Keep the `.vercel.app` callback in the redirect list while you switch, so a
 DNS mistake cannot lock you out of the app.
@@ -125,7 +124,6 @@ DNS mistake cannot lock you out of the app.
 The dashboard should show ten cards: three Amex Gold and seven Chase Ink, with
 a recommendation for advertising and one for shipping.
 
-If you land back on the login page in a loop, the callback URL is missing from
-Supabase's redirect list, or `NEXT_PUBLIC_SITE_URL` does not match the host you
-are actually on. If you reach a "no access" page instead, you signed in with an
-address that is not in `allowed_emails`.
+If you land back on the login page in a loop, the callback URL for the host you
+are on is missing from Supabase's redirect list. If you reach a "no access" page
+instead, you signed in with an address that is not in `allowed_emails`.
