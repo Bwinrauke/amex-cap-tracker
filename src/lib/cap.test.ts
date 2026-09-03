@@ -4,6 +4,7 @@ import {
   computeBurnRate,
   daysBetween,
   projectExhaust,
+  capYearWindow,
   recommendCard,
   rankCardsForCharge,
   planCharge,
@@ -129,20 +130,46 @@ describe("allocateSequence", () => {
   });
 });
 
+describe("capYearWindow", () => {
+  it("is the calendar year for a 1 January anchor", () => {
+    expect(capYearWindow(2026)).toEqual({ start: "2026-01-01", end: "2026-12-31" });
+  });
+
+  it("runs anniversary to anniversary for a Chase card", () => {
+    // Hai Ink ETC 10/25: November anniversary.
+    expect(capYearWindow(2025, 11, 1)).toEqual({ start: "2025-11-01", end: "2026-10-31" });
+  });
+
+  it("handles a mid-year anniversary", () => {
+    // Noni ETJ Ink NEW: May anniversary.
+    expect(capYearWindow(2026, 5, 1)).toEqual({ start: "2026-05-01", end: "2027-04-30" });
+  });
+
+  it("clamps an anniversary day that the month does not have", () => {
+    // A 31st anniversary in a 30-day month must not roll into the next month.
+    expect(capYearWindow(2026, 4, 31).start).toBe("2026-04-30");
+  });
+
+  it("handles a 29 February anniversary in a non-leap year", () => {
+    expect(capYearWindow(2027, 2, 29).start).toBe("2027-02-28");
+  });
+});
+
 describe("computeBurnRate", () => {
-  it("measures from 1 January when an opening balance is carried", () => {
+  it("measures from the window start when an opening balance is carried", () => {
     const burn = computeBurnRate({
-      capYear: 2026, capUsed: 31_000, openingCounted: 20_000,
+      windowStart: "2026-01-01", windowEnd: "2026-12-31",
+      capUsed: 31_000, openingCounted: 20_000,
       firstChargeOn: "2026-01-20", asOf: "2026-01-31",
     });
-    expect(burn.windowStart).toBe("2026-01-01");
     expect(burn.elapsedDays).toBe(31);
     expect(burn.perDay).toBe(1000);
   });
 
   it("measures from the first charge when there is no opening balance", () => {
     const burn = computeBurnRate({
-      capYear: 2026, capUsed: 5_000, openingCounted: 0,
+      windowStart: "2026-01-01", windowEnd: "2026-12-31",
+      capUsed: 5_000, openingCounted: 0,
       firstChargeOn: "2026-03-01", asOf: "2026-03-10",
     });
     expect(burn.windowStart).toBe("2026-03-01");
@@ -150,9 +177,24 @@ describe("computeBurnRate", () => {
     expect(burn.perDay).toBe(500);
   });
 
+  it("measures an anniversary card from its own window, not 1 January", () => {
+    // A May-anniversary card on 3 September: 126 days into its cap year,
+    // not 246. Using the calendar year would understate the burn by half.
+    const { start, end } = capYearWindow(2026, 5, 1);
+    const burn = computeBurnRate({
+      windowStart: start, windowEnd: end,
+      capUsed: 31_090, openingCounted: 31_090,
+      firstChargeOn: null, asOf: "2026-09-03",
+    });
+    expect(burn.windowStart).toBe("2026-05-01");
+    expect(burn.elapsedDays).toBe(126);
+    expect(burn.perDay).toBeCloseTo(31_090 / 126, 6);
+  });
+
   it("clamps the window to the end of the cap year", () => {
     const burn = computeBurnRate({
-      capYear: 2025, capUsed: 36_500, openingCounted: 1,
+      windowStart: "2025-01-01", windowEnd: "2025-12-31",
+      capUsed: 36_500, openingCounted: 1,
       firstChargeOn: "2025-01-01", asOf: "2026-06-01",
     });
     expect(burn.windowEnd).toBe("2025-12-31");
@@ -162,7 +204,8 @@ describe("computeBurnRate", () => {
 
   it("never divides by zero on the first day", () => {
     const burn = computeBurnRate({
-      capYear: 2026, capUsed: 900, openingCounted: 0,
+      windowStart: "2026-01-01", windowEnd: "2026-12-31",
+      capUsed: 900, openingCounted: 0,
       firstChargeOn: "2026-05-05", asOf: "2026-05-05",
     });
     expect(burn.elapsedDays).toBe(1);
@@ -173,25 +216,39 @@ describe("computeBurnRate", () => {
 describe("projectExhaust", () => {
   it("projects a date from the remaining runway and burn rate", () => {
     const projection = projectExhaust({
-      remainingRunway: 10_000, burnPerDay: 1_000, asOf: "2026-03-01", capYear: 2026,
+      remainingRunway: 10_000, burnPerDay: 1_000,
+      asOf: "2026-03-01", windowEnd: "2026-12-31",
     });
     expect(projection.daysRemaining).toBe(10);
     expect(projection.date).toBe("2026-03-11");
     expect(projection.withinCapYear).toBe(true);
-    expect(projection.reason).toBe("projected");
   });
 
   it("flags a projection that lands after the cap resets", () => {
     const projection = projectExhaust({
-      remainingRunway: 100_000, burnPerDay: 100, asOf: "2026-06-01", capYear: 2026,
+      remainingRunway: 100_000, burnPerDay: 100,
+      asOf: "2026-06-01", windowEnd: "2026-12-31",
     });
     expect(projection.withinCapYear).toBe(false);
     expect(projection.reason).toBe("beyond_year");
   });
 
+  it("judges reset against the card's own window, not 31 December", () => {
+    // An April-ending window: exhausting in December is still within it,
+    // where a calendar-year assumption would wrongly call it a reset.
+    const projection = projectExhaust({
+      remainingRunway: 30_000, burnPerDay: 300,
+      asOf: "2026-09-03", windowEnd: "2027-04-30",
+    });
+    expect(projection.date).toBe("2026-12-12");
+    expect(projection.withinCapYear).toBe(true);
+    expect(projection.reason).toBe("projected");
+  });
+
   it("reports no projection when nothing is being spent", () => {
     const projection = projectExhaust({
-      remainingRunway: 50_000, burnPerDay: 0, asOf: "2026-06-01", capYear: 2026,
+      remainingRunway: 50_000, burnPerDay: 0,
+      asOf: "2026-06-01", windowEnd: "2026-12-31",
     });
     expect(projection.date).toBeNull();
     expect(projection.reason).toBe("no_burn");
@@ -199,7 +256,8 @@ describe("projectExhaust", () => {
 
   it("reports an already exhausted cap", () => {
     const projection = projectExhaust({
-      remainingRunway: 0, burnPerDay: 900, asOf: "2026-06-01", capYear: 2026,
+      remainingRunway: 0, burnPerDay: 900,
+      asOf: "2026-06-01", windowEnd: "2026-12-31",
     });
     expect(projection.reason).toBe("already_exhausted");
     expect(projection.daysRemaining).toBe(0);

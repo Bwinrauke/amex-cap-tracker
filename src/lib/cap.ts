@@ -154,8 +154,36 @@ export function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * The calendar window a cap year covers on a given card.
+ *
+ * Amex caps run on the calendar year; Chase Ink caps run from the cardmember
+ * anniversary. Defaulting to 1 January makes a calendar-year card behave
+ * exactly as before.
+ */
+export function capYearWindow(
+  capYear: number,
+  startMonth = 1,
+  startDay = 1,
+): { start: string; end: string } {
+  const start = clampToMonth(capYear, startMonth, startDay);
+  // The window closes the day before the next anniversary, so a 1 January
+  // start still ends on 31 December.
+  const end = addDays(clampToMonth(capYear + 1, startMonth, startDay), -1);
+  return { start: toIsoDate(start), end: toIsoDate(end) };
+}
+
+/** Guards against anniversaries like the 31st in a 30-day month. */
+function clampToMonth(year: number, month: number, day: number): Date {
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month - 1, Math.min(day, daysInMonth)));
+}
+
 export interface BurnRateInput {
-  capYear: number;
+  /** First day of this card's cap year. */
+  windowStart: string;
+  /** Last day of this card's cap year. */
+  windowEnd: string;
   capUsed: number;
   openingCounted: number;
   firstChargeOn: string | null;
@@ -173,20 +201,16 @@ export interface BurnRate {
 /**
  * Average eligible spend per day so far this cap year.
  *
- * The window opens on 1 January when an opening balance is carried (that
- * spend happened earlier in the year, even though it is not itemised), and
- * otherwise on the first logged charge — dividing a late-starting account's
- * spend by the whole year would understate its burn.
+ * The window opens at the start of the cap year when an opening balance is
+ * carried (that spend happened earlier in the period, even though it is not
+ * itemised), and otherwise on the first logged charge — dividing a
+ * late-starting card's spend by the whole period would understate its burn.
  */
 export function computeBurnRate(input: BurnRateInput): BurnRate {
-  const { capYear, capUsed, openingCounted, firstChargeOn, asOf } = input;
+  const { windowStart, windowEnd, capUsed, openingCounted, firstChargeOn, asOf } = input;
 
-  const yearStart = `${capYear}-01-01`;
-  const yearEnd = `${capYear}-12-31`;
-
-  const start = openingCounted > 0 || !firstChargeOn ? yearStart : firstChargeOn;
-  const today = utcDate(asOf);
-  const end = today > utcDate(yearEnd) ? yearEnd : asOf;
+  const start = openingCounted > 0 || !firstChargeOn ? windowStart : firstChargeOn;
+  const end = utcDate(asOf) > utcDate(windowEnd) ? windowEnd : asOf;
 
   // Inclusive of both endpoints, and never zero, so a single day of spend
   // does not divide by zero.
@@ -204,7 +228,7 @@ export interface ExhaustProjection {
   /** ISO date the cap is projected to be reached, or null if it never is. */
   date: string | null;
   daysRemaining: number | null;
-  /** False when the projected date falls after the cap year resets. */
+  /** False when the projected date falls after this cap year resets. */
   withinCapYear: boolean;
   reason: "projected" | "already_exhausted" | "no_burn" | "beyond_year";
 }
@@ -212,16 +236,17 @@ export interface ExhaustProjection {
 /**
  * Projects when the remaining runway runs out at the current burn rate.
  *
- * A date past 31 December is reported but flagged, because the cap resets on
- * 1 January — the account will not actually exhaust.
+ * A date past the end of the cap year is reported but flagged, because the
+ * cap resets then — the card will not actually exhaust.
  */
 export function projectExhaust(params: {
   remainingRunway: number;
   burnPerDay: number;
   asOf: string;
-  capYear: number;
+  /** Last day of this card's cap year. */
+  windowEnd: string;
 }): ExhaustProjection {
-  const { remainingRunway, burnPerDay, asOf, capYear } = params;
+  const { remainingRunway, burnPerDay, asOf, windowEnd } = params;
 
   if (remainingRunway <= 0) {
     return { date: asOf, daysRemaining: 0, withinCapYear: true, reason: "already_exhausted" };
@@ -232,8 +257,7 @@ export function projectExhaust(params: {
 
   const daysRemaining = Math.ceil(remainingRunway / burnPerDay);
   const projected = addDays(asOf, daysRemaining);
-  const yearEnd = utcDate(`${capYear}-12-31`);
-  const withinCapYear = projected <= yearEnd;
+  const withinCapYear = projected <= utcDate(windowEnd);
 
   return {
     date: toIsoDate(projected),

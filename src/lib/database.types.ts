@@ -35,6 +35,9 @@ export type CardAccountRow = {
   opened_on: string | null;
   statement_close_day: number | null;
   status: "active" | "inactive" | "closed";
+  /** Month/day the bonus cap year opens. 1/1 for calendar-year cards. */
+  cap_year_start_month: number;
+  cap_year_start_day: number;
   ads_account: string | null;
   sort_order: number;
   notes: string | null;

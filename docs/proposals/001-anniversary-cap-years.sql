@@ -1,4 +1,5 @@
--- PROPOSAL — NOT APPLIED.
+-- APPLIED 2026-09-03 as migration `anniversary_cap_years`.
+-- Kept as the record of what was changed and why.
 --
 -- Chase Ink caps run on the cardmember anniversary year, but
 -- v_charge_allocation currently derives the cap year with

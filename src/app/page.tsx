@@ -7,6 +7,7 @@ import { MonthlyStrip } from "@/components/MonthlyStrip";
 import { ChargePlanner } from "@/components/ChargePlanner";
 import {
   bonusPointsAvailable,
+  capYearWindow,
   computeBurnRate,
   projectExhaust,
   recommendCard,
@@ -37,17 +38,27 @@ export default async function DashboardPage({
         .eq("cap_year", capYear)
         .order("sort_order", { ascending: true }),
       supabase.from("v_monthly_spend").select("*").eq("cap_year", capYear),
-      supabase.from("card_accounts").select("id, product"),
+      supabase
+        .from("card_accounts")
+        .select("id, product, cap_year_start_month, cap_year_start_day"),
     ]);
 
   const runway = (runwayData ?? []) as CapRunwayRow[];
   const monthly = (monthlyData ?? []) as MonthlySpendRow[];
-  const products = new Map(
-    ((accountData ?? []) as Pick<CardAccountRow, "id" | "product">[]).map((a) => [
-      a.id,
-      a.product,
-    ]),
+  // Each card carries its own cap-year anchor: Amex runs on the calendar
+  // year, Chase Ink on the cardmember anniversary.
+  const accounts = new Map(
+    (
+      (accountData ?? []) as Pick<
+        CardAccountRow,
+        "id" | "product" | "cap_year_start_month" | "cap_year_start_day"
+      >[]
+    ).map((a) => [a.id, a]),
   );
+  const windowFor = (cardAccountId: string, year: number) => {
+    const account = accounts.get(cardAccountId);
+    return capYearWindow(year, account?.cap_year_start_month ?? 1, account?.cap_year_start_day ?? 1);
+  };
 
   const monthlyByAccount = new Map<string, Record<number, number>>();
   for (const row of monthly) {
@@ -61,7 +72,7 @@ export default async function DashboardPage({
   const positions: CardPosition[] = runway.map((row) => ({
     cardAccountId: row.card_account_id,
     nickname: row.nickname,
-    product: products.get(row.card_account_id) ?? "Card",
+    product: accounts.get(row.card_account_id)?.product ?? "Card",
     accountStatus: row.account_status,
     capAmount: Number(row.cap_amount ?? 0),
     capUsed: Number(row.cap_used ?? 0),
@@ -88,24 +99,32 @@ export default async function DashboardPage({
     .filter((card) => card.accountStatus === "active")
     .reduce((sum, card) => sum + bonusPointsAvailable(card), 0);
 
-  const portfolioBurn = runway.reduce(
-    (sum, row) =>
+  const portfolioBurn = runway.reduce((sum, row) => {
+    const window = windowFor(row.card_account_id, row.cap_year);
+    return (
       sum +
       computeBurnRate({
-        capYear,
+        windowStart: window.start,
+        windowEnd: window.end,
         capUsed: Number(row.cap_used ?? 0),
         openingCounted: Number(row.opening_counted ?? 0),
         firstChargeOn: row.first_charge_on,
         asOf: today,
-      }).perDay,
-    0,
-  );
+      }).perDay
+    );
+  }, 0);
+
+  // Cards reset on different dates, so the portfolio view uses the soonest
+  // window end rather than pretending they share one.
+  const soonestWindowEnd = runway
+    .map((row) => windowFor(row.card_account_id, row.cap_year).end)
+    .sort()[0] ?? capYearWindow(capYear).end;
 
   const portfolioExhaust = projectExhaust({
     remainingRunway: totals.remaining,
     burnPerDay: portfolioBurn,
     asOf: today,
-    capYear,
+    windowEnd: soonestWindowEnd,
   });
 
   return (
@@ -215,8 +234,10 @@ export default async function DashboardPage({
             const remaining = Number(row.remaining_runway ?? 0);
             const bonusRate = Number(row.bonus_multiplier ?? 1);
             const baseRate = Number(row.base_multiplier ?? 1);
+            const window = windowFor(row.card_account_id, row.cap_year);
             const burn = computeBurnRate({
-              capYear,
+              windowStart: window.start,
+              windowEnd: window.end,
               capUsed: Number(row.cap_used ?? 0),
               openingCounted: Number(row.opening_counted ?? 0),
               firstChargeOn: row.first_charge_on,
@@ -226,7 +247,7 @@ export default async function DashboardPage({
               remainingRunway: remaining,
               burnPerDay: burn.perDay,
               asOf: today,
-              capYear,
+              windowEnd: window.end,
             });
             const uplift = remaining * Math.max(0, bonusRate - baseRate);
 
@@ -236,7 +257,7 @@ export default async function DashboardPage({
                   <div>
                     <h2 className="font-semibold">{row.nickname}</h2>
                     <p className="mt-0.5 text-xs text-ink-500">
-                      {products.get(row.card_account_id) ?? "Card"}
+                      {accounts.get(row.card_account_id)?.product ?? "Card"}
                       {row.last4 ? ` · •••• ${row.last4}` : ""}
                       {row.entity ? ` · ${row.entity}` : ""}
                     </p>
@@ -267,6 +288,11 @@ export default async function DashboardPage({
                 />
 
                 <dl className="grid grid-cols-2 gap-y-2 text-sm">
+                  <dt className="text-ink-500">Cap year</dt>
+                  <dd className="text-right tabular">
+                    {formatDate(window.start)} – {formatDate(window.end)}
+                  </dd>
+
                   <dt className="text-ink-500">Rates</dt>
                   <dd className="text-right tabular">
                     {bonusRate}x bonus / {baseRate}x base

@@ -59,20 +59,33 @@ that card's terms for the year:
 | Chase Ink Business Cash | 5 | 1 | 25000 |
 | Chase Ink Business Unlimited | 1.5 | 1.5 | *(any large number)* |
 
+Set `cap_year_start_month` / `cap_year_start_day` on the card when its cap year
+does not start on 1 January.
+
 Which charges count is decided per charge by `counts_toward_cap`, driven by
 `merchant_rules` at import time and correctable by hand in the preview.
 
-Two things the current schema cannot express, both of which would need a
-migration you would have to approve:
+### Cap years that are not calendar years
 
-- **Anniversary-year caps.** Chase Ink caps run on the cardmember anniversary
-  year, but `v_charge_allocation` derives the cap year with
-  `EXTRACT(year FROM posted_on)` — i.e. calendar year. A Chase card whose
-  anniversary is not 1 January will bucket its spend into the wrong cap year.
+Chase Ink caps run on the cardmember anniversary, not the calendar year.
+`card_accounts.cap_year_start_month` / `cap_year_start_day` carry that anchor,
+and `v_charge_allocation` buckets each charge with `cap_year_for()`. Both
+default to 1 January, so calendar-year cards behave exactly as before.
+
+A cap year is named by the calendar year it **opens** in: a November-anniversary
+card's 1 Nov 2025 - 31 Oct 2026 period is `year = 2025`.
+
+### Known gaps
+
+- **Eligibility is global, not per card.** `merchant_rules.counts_toward_cap`
+  is one boolean for every card, but bonus categories differ by product —
+  shipping earns 3x on Ink Preferred while an Amex Gold only earns its bonus
+  rate on the categories that card has selected. Until eligibility is per
+  card, a charge in a category one card treats as a bonus and another does not
+  has to be corrected by hand in the import preview.
 - **Purchase-size thresholds.** Business Platinum's 1.5x applies only to
   single purchases of $5,000 or more. `merchant_rules` matches on descriptor
-  text alone, with no amount condition, so this has to be ticked by hand in
-  the import preview.
+  text alone, with no amount condition.
 
 ## The database is pre-existing
 
