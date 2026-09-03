@@ -89,17 +89,18 @@ to point at, and verifies the moment it resolves.
 | Value / Target | `cname.vercel-dns.com` — **use whatever Vercel shows**, some accounts get a different target |
 | TTL | leave default |
 
-Where to create it depends on who runs the DNS for `cityjeans.com`. Check
-**Shopify admin → Settings → Domains**:
+DNS for `cityjeans.com` is on **Cloudflare**, so create it there:
+**Cloudflare → cityjeans.com → DNS → Records → Add record**.
 
-- **"Managed by Shopify"** → open the domain, *Edit DNS settings*, add a custom
-  `CNAME` record there.
-- **Shown as a connected third-party domain** → add it at whichever registrar
-  or DNS host the domain uses (GoDaddy, Cloudflare, Namecheap, and so on).
+- **Name**: `apps` — just the label. Cloudflare appends the domain itself;
+  typing the full hostname produces `apps.cityjeans.com.cityjeans.com`.
+- **Proxy status**: **DNS only** (grey cloud), not Proxied (orange). This is
+  the one that catches people. With the proxy on, Cloudflare terminates TLS
+  itself, Vercel cannot complete certificate validation, and the domain sits
+  in "Invalid Configuration" while visitors get an SSL error.
+- **TTL**: Auto.
 
-If the DNS sits behind **Cloudflare**, set the record to **DNS only** (grey
-cloud, not orange). Leaving the proxy on stops Vercel from issuing a
-certificate, and the site fails with an SSL error.
+The storefront's own records are untouched — this only adds the `apps` label.
 
 Certificates are issued automatically once the record resolves — usually
 minutes.
