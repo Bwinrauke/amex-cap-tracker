@@ -1,0 +1,43 @@
+name: CI
+
+# Runs on every push. For a single-maintainer repo this also covers pull
+# requests, since their branches live in this repo and pushing to them
+# triggers the same run — without paying for a duplicate.
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Typecheck, test and build
+    runs-on: ubuntu-latest
+
+    env:
+      # The build never contacts Supabase: every data page is force-dynamic,
+      # so it renders per request rather than at build time. These
+      # placeholders just satisfy the client constructors, which keeps CI
+      # hermetic and free of secrets. Real values live in Vercel.
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` installs exactly what package-lock.json pins, so a run can
+      # never drift from what was developed against.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
