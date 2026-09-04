@@ -1,4 +1,4 @@
-import { decryptToken } from "@/lib/crypto";
+import { decryptToken, loadKey } from "@/lib/crypto";
 
 /**
  * Plaid is off unless PLAID_ENABLED is exactly "true". Every route checks
@@ -6,6 +6,59 @@ import { decryptToken } from "@/lib/crypto";
  */
 export function isPlaidEnabled(): boolean {
   return process.env.PLAID_ENABLED === "true";
+}
+
+export interface PlaidReadiness {
+  /** PLAID_ENABLED is exactly "true". */
+  enabled: boolean;
+  /** Names of required variables that are absent or empty. Never values. */
+  missing: string[];
+  /** Variables that are present but unusable, with the reason. */
+  invalid: string[];
+  ready: boolean;
+}
+
+/**
+ * Reports whether Plaid is actually usable, and what is missing if not.
+ *
+ * Names and reasons only — no values ever leave the server. Without this a
+ * misconfigured deploy just shows "disabled" with no way to tell which of the
+ * six variables is at fault.
+ */
+export function plaidReadiness(): PlaidReadiness {
+  const required: Record<string, string | undefined> = {
+    PLAID_CLIENT_ID: process.env.PLAID_CLIENT_ID,
+    PLAID_SECRET: process.env.PLAID_SECRET,
+    PLAID_TOKEN_ENCRYPTION_KEY: process.env.PLAID_TOKEN_ENCRYPTION_KEY,
+    // plaid_items is deny-all under RLS, so the service role is the only way in.
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  };
+
+  const missing = Object.entries(required)
+    .filter(([, value]) => !value || value.trim() === "")
+    .map(([name]) => name);
+
+  const invalid: string[] = [];
+
+  const env = process.env.PLAID_ENV ?? "sandbox";
+  if (!HOSTS[env]) {
+    invalid.push(`PLAID_ENV must be one of ${Object.keys(HOSTS).join(", ")}`);
+  }
+
+  // A key that is present but not 32 bytes fails only at the moment a token
+  // is encrypted, which is the worst time to find out.
+  if (!missing.includes("PLAID_TOKEN_ENCRYPTION_KEY")) {
+    try {
+      loadKey();
+    } catch (error) {
+      invalid.push(
+        `PLAID_TOKEN_ENCRYPTION_KEY: ${error instanceof Error ? error.message : "unusable"}`,
+      );
+    }
+  }
+
+  const enabled = isPlaidEnabled();
+  return { enabled, missing, invalid, ready: enabled && missing.length === 0 && invalid.length === 0 };
 }
 
 const HOSTS: Record<string, string> = {

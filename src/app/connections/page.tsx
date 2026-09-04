@@ -1,7 +1,7 @@
 import { Shell } from "@/components/Shell";
 import { getViewer } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { isPlaidEnabled } from "@/lib/plaid/client";
+import { plaidReadiness } from "@/lib/plaid/client";
 import { formatDate } from "@/lib/format";
 import { PlaidPanel } from "@/components/PlaidPanel";
 import type { CardAccountRow, ImportBatchRow } from "@/lib/database.types";
@@ -9,7 +9,8 @@ import type { CardAccountRow, ImportBatchRow } from "@/lib/database.types";
 export const dynamic = "force-dynamic";
 
 export default async function ConnectionsPage() {
-  const enabled = isPlaidEnabled();
+  const readiness = plaidReadiness();
+  const enabled = readiness.ready;
   const viewer = await getViewer();
   const supabase = await createClient();
 
@@ -47,7 +48,7 @@ export default async function ConnectionsPage() {
               enabled ? "bg-accent-500/15 text-accent-400" : "bg-ink-800 text-ink-500"
             }`}
           >
-            {enabled ? "enabled" : "disabled"}
+            {enabled ? "enabled" : readiness.enabled ? "misconfigured" : "disabled"}
           </span>
         </header>
 
@@ -58,17 +59,44 @@ export default async function ConnectionsPage() {
             isAdmin={viewer?.role === "admin"}
           />
         ) : (
-          <div className="rounded-lg border border-ink-800 bg-ink-950 p-4 text-sm text-ink-500">
+          <div className="space-y-3 rounded-lg border border-ink-800 bg-ink-950 p-4 text-sm text-ink-500">
+            {!readiness.enabled ? (
+              <p>
+                <code className="text-ink-300">PLAID_ENABLED</code> is not set to{" "}
+                <code className="text-ink-300">true</code> in this deployment. Set it, then
+                redeploy — environment changes do not apply to an existing build.
+              </p>
+            ) : null}
+
+            {readiness.missing.length > 0 ? (
+              <div>
+                <p className="text-ink-300">Not set in this deployment:</p>
+                <ul className="mt-1 list-inside list-disc">
+                  {readiness.missing.map((name) => (
+                    <li key={name}>
+                      <code>{name}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {readiness.invalid.length > 0 ? (
+              <div>
+                <p className="text-danger-400">Set but unusable:</p>
+                <ul className="mt-1 list-inside list-disc text-danger-400">
+                  {readiness.invalid.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             <p>
-              Plaid is off by default. To turn it on, set <code className="text-ink-300">PLAID_ENABLED=true</code>{" "}
-              along with <code className="text-ink-300">PLAID_CLIENT_ID</code>,{" "}
-              <code className="text-ink-300">PLAID_SECRET</code>,{" "}
-              <code className="text-ink-300">PLAID_TOKEN_ENCRYPTION_KEY</code> and{" "}
-              <code className="text-ink-300">SUPABASE_SERVICE_ROLE_KEY</code>.
-            </p>
-            <p className="mt-2">
-              Access tokens are encrypted with AES-256-GCM before they are stored, and the token
-              table is unreadable except by the service role.
+              Access tokens are encrypted with AES-256-GCM before storage, and the token table is
+              unreadable except by the service role — which is why{" "}
+              <code className="text-ink-300">SUPABASE_SERVICE_ROLE_KEY</code> is required. Keep it
+              server-side; never give it a <code className="text-ink-300">NEXT_PUBLIC_</code> prefix.
             </p>
           </div>
         )}
