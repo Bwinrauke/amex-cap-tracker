@@ -35,7 +35,7 @@ export async function POST() {
 
     const [{ data: items }, { data: plaidAccounts }, { data: rulesData }] = await Promise.all([
       admin.from("plaid_items").select("*"),
-      admin.from("plaid_accounts").select("account_id, card_account_id"),
+      admin.from("plaid_accounts").select("account_id, card_account_id, plaid_item_id"),
       supabase.from("merchant_rules").select("*"),
     ]);
 
@@ -57,6 +57,8 @@ export async function POST() {
 
     let inserted = 0;
     let unmapped = 0;
+    let skippedZero = 0;
+    let cursorHeld = false;
     const errors: string[] = [];
 
     for (const item of items ?? []) {
@@ -89,6 +91,14 @@ export async function POST() {
             continue;
           }
 
+          const amount = Math.abs(transaction.amount);
+          if (amount === 0) {
+            // charges.amount must be > 0, and one bad row fails the entire
+            // batch upsert rather than just itself.
+            skippedZero++;
+            continue;
+          }
+
           const merchant = transaction.merchant_name ?? transaction.name;
           const classification = classifyCharge(
             { merchant, descriptor: transaction.name },
@@ -102,7 +112,7 @@ export async function POST() {
             merchant: classification.merchant,
             descriptor: transaction.name,
             // charges.amount is positive; the direction lives in status.
-            amount: Math.abs(transaction.amount),
+            amount,
             category: classification.category,
             counts_toward_cap: classification.countsTowardCap,
             status:
@@ -128,10 +138,23 @@ export async function POST() {
           inserted += data?.length ?? 0;
         }
 
+        /*
+         * Plaid's sync cursor is one-way: once advanced, those transactions
+         * are never returned again. Accounts on this item that are not yet
+         * pointed at a card had their transactions skipped above, so holding
+         * the cursor back is what lets them be picked up after mapping.
+         * Re-processing is harmless — the fingerprint upsert ignores anything
+         * already stored.
+         */
+        const itemHasUnmappedAccounts = (plaidAccounts ?? []).some(
+          (a) => a.plaid_item_id === item.id && !a.card_account_id,
+        );
+        if (itemHasUnmappedAccounts) cursorHeld = true;
+
         await admin
           .from("plaid_items")
           .update({
-            sync_cursor: cursor,
+            ...(itemHasUnmappedAccounts ? {} : { sync_cursor: cursor }),
             last_synced_at: new Date().toISOString(),
             status: "good",
             last_error: null,
@@ -147,7 +170,7 @@ export async function POST() {
       }
     }
 
-    return Response.json({ inserted, unmapped, errors });
+    return Response.json({ inserted, unmapped, skippedZero, cursorHeld, errors });
   } catch (error) {
     const authFailure = authErrorResponse(error);
     if (authFailure) return authFailure;

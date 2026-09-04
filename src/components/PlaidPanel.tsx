@@ -124,7 +124,16 @@ export function PlaidPanel({
       if (payload.unmapped > 0) {
         parts.push(`${payload.unmapped} skipped from unmapped accounts`);
       }
-      setMessage(parts.join(", ") + ".");
+      if (payload.skippedZero > 0) {
+        parts.push(`${payload.skippedZero} zero-amount ignored`);
+      }
+      setMessage(
+        parts.join(", ") +
+          "." +
+          (payload.cursorHeld
+            ? " Nothing has been consumed — map the remaining accounts and sync again to pull their history."
+            : ""),
+      );
       if (payload.errors?.length) setError(payload.errors.join(" · "));
       router.refresh();
     }
