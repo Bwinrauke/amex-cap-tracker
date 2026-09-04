@@ -14,7 +14,10 @@ export function isPlaidEnabled(): boolean {
  * amount to a misconfigured deploy.
  */
 export function resolvePlaidEnv(): string {
-  return (process.env.PLAID_ENV ?? "sandbox").trim().toLowerCase();
+  // ?? only catches undefined, but a variable created in a dashboard and left
+  // blank arrives as "" — which should mean "unset", not "invalid".
+  const raw = (process.env.PLAID_ENV ?? "").trim().toLowerCase();
+  return raw === "" ? "sandbox" : raw;
 }
 
 export interface PlaidReadiness {
