@@ -2,26 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LINK_TOKEN_KEY } from "./PlaidOAuthReturn";
 
 const LINK_SCRIPT = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
-
-interface PlaidHandler {
-  open: () => void;
-  exit: () => void;
-  destroy: () => void;
-}
-
-declare global {
-  interface Window {
-    Plaid?: {
-      create: (config: {
-        token: string;
-        onSuccess: (publicToken: string) => void;
-        onExit: (error: { display_message?: string; error_message?: string } | null) => void;
-      }) => PlaidHandler;
-    };
-  }
-}
 
 export interface PlaidAccountRowView {
   id: string;
@@ -72,6 +55,13 @@ export function PlaidPanel({
       if (!response.ok) throw new Error(payload.error ?? "Could not start a Plaid session.");
       if (!window.Plaid) throw new Error("Plaid Link has not finished loading.");
 
+      /*
+       * An OAuth bank navigates the whole page away, so the token has to
+       * outlive this component. The return page reads it back to resume the
+       * same Link session; a freshly minted one would not match.
+       */
+      sessionStorage.setItem(LINK_TOKEN_KEY, payload.linkToken);
+
       const handler = window.Plaid.create({
         token: payload.linkToken,
         onSuccess: async (publicToken: string) => {
@@ -84,6 +74,7 @@ export function PlaidPanel({
             });
             const result = await exchange.json();
             if (!exchange.ok) throw new Error(result.error ?? "Could not save the connection.");
+            sessionStorage.removeItem(LINK_TOKEN_KEY);
             setMessage(
               `Connected. ${result.accounts} account${result.accounts === 1 ? "" : "s"} found — map each one to a card below, then sync.`,
             );

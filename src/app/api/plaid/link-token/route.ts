@@ -1,5 +1,10 @@
 import { requireAdmin, authErrorResponse } from "@/lib/auth";
-import { isPlaidEnabled, plaidDisabledResponse, plaidFetch } from "@/lib/plaid/client";
+import {
+  isPlaidEnabled,
+  plaidDisabledResponse,
+  plaidFetch,
+  plaidRedirectUri,
+} from "@/lib/plaid/client";
 
 export const runtime = "nodejs";
 
@@ -9,6 +14,15 @@ export async function POST() {
     if (!isPlaidEnabled()) return plaidDisabledResponse();
     const viewer = await requireAdmin();
 
+    /*
+     * Banks that use OAuth — Chase and Amex among them — send the user to
+     * their own site and back. Plaid requires redirect_uri on every Link
+     * session for those, and it must match a URI registered in the Plaid
+     * dashboard exactly, which is why it comes from configuration rather than
+     * from the request host: the vercel.app and custom domains would differ.
+     */
+    const redirectUri = plaidRedirectUri();
+
     const data = await plaidFetch<{ link_token: string; expiration: string }>(
       "/link/token/create",
       {
@@ -17,6 +31,7 @@ export async function POST() {
         products: ["transactions"],
         country_codes: ["US"],
         language: "en",
+        ...(redirectUri ? { redirect_uri: redirectUri } : {}),
       },
     );
 

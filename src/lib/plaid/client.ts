@@ -20,6 +20,16 @@ export function resolvePlaidEnv(): string {
   return raw === "" ? "sandbox" : raw;
 }
 
+/**
+ * Where a bank returns the user after OAuth. Must match a redirect URI
+ * registered in the Plaid dashboard character for character, and must be
+ * HTTPS outside Sandbox.
+ */
+export function plaidRedirectUri(): string | null {
+  const value = (process.env.PLAID_REDIRECT_URI ?? "").trim();
+  return value === "" ? null : value;
+}
+
 export interface PlaidReadiness {
   /** PLAID_ENABLED is exactly "true". */
   enabled: boolean;
@@ -27,6 +37,8 @@ export interface PlaidReadiness {
   missing: string[];
   /** Variables that are present but unusable, with the reason. */
   invalid: string[];
+  /** OAuth banks (Chase, Amex) cannot be linked without this. */
+  redirectUri: string | null;
   ready: boolean;
 }
 
@@ -72,8 +84,19 @@ export function plaidReadiness(): PlaidReadiness {
     }
   }
 
+  const redirectUri = plaidRedirectUri();
+  if (redirectUri && !redirectUri.startsWith("https://") && resolvePlaidEnv() !== "sandbox") {
+    invalid.push("PLAID_REDIRECT_URI must be an https:// URL outside Sandbox");
+  }
+
   const enabled = isPlaidEnabled();
-  return { enabled, missing, invalid, ready: enabled && missing.length === 0 && invalid.length === 0 };
+  return {
+    enabled,
+    missing,
+    invalid,
+    redirectUri,
+    ready: enabled && missing.length === 0 && invalid.length === 0,
+  };
 }
 
 const HOSTS: Record<string, string> = {

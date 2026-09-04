@@ -52,6 +52,15 @@ export default async function ConnectionsPage() {
           </span>
         </header>
 
+        {enabled && !readiness.redirectUri ? (
+          <p className="mb-4 rounded-lg border border-warn-400/30 bg-warn-400/5 p-3 text-sm text-warn-400">
+            <code>PLAID_REDIRECT_URI</code> is not set, so OAuth banks (Chase, Amex) will fail
+            partway through. Set it to{" "}
+            <code>https://apps.cityjeans.com/connections/oauth</code> and register the same URL in
+            the Plaid dashboard.
+          </p>
+        ) : null}
+
         {enabled ? (
           <PlaidPanel
             plaidAccounts={plaidAccounts}
@@ -90,6 +99,15 @@ export default async function ConnectionsPage() {
                   ))}
                 </ul>
               </div>
+            ) : null}
+
+            {readiness.enabled && !readiness.redirectUri ? (
+              <p className="text-warn-400">
+                <code>PLAID_REDIRECT_URI</code> is not set. Banks that use OAuth — Chase and
+                Amex among them — cannot be linked without it. Set it to{" "}
+                <code>https://apps.cityjeans.com/connections/oauth</code> and register that exact
+                URL in the Plaid dashboard.
+              </p>
             ) : null}
 
             <p>
