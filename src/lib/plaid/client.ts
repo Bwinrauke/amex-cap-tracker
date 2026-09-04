@@ -8,6 +8,15 @@ export function isPlaidEnabled(): boolean {
   return process.env.PLAID_ENABLED === "true";
 }
 
+/**
+ * The Plaid environment name, normalised. Dashboards and docs capitalise it
+ * inconsistently and copy-paste picks up whitespace, none of which should
+ * amount to a misconfigured deploy.
+ */
+export function resolvePlaidEnv(): string {
+  return (process.env.PLAID_ENV ?? "sandbox").trim().toLowerCase();
+}
+
 export interface PlaidReadiness {
   /** PLAID_ENABLED is exactly "true". */
   enabled: boolean;
@@ -40,9 +49,12 @@ export function plaidReadiness(): PlaidReadiness {
 
   const invalid: string[] = [];
 
-  const env = process.env.PLAID_ENV ?? "sandbox";
+  const env = resolvePlaidEnv();
   if (!HOSTS[env]) {
-    invalid.push(`PLAID_ENV must be one of ${Object.keys(HOSTS).join(", ")}`);
+    // Name what arrived — a typo is invisible otherwise.
+    invalid.push(
+      `PLAID_ENV must be one of ${Object.keys(HOSTS).join(", ")} — got "${env}"`,
+    );
   }
 
   // A key that is present but not 32 bytes fails only at the moment a token
@@ -76,7 +88,7 @@ export interface PlaidConfig {
 export function loadPlaidConfig(): PlaidConfig {
   const clientId = process.env.PLAID_CLIENT_ID;
   const secret = process.env.PLAID_SECRET;
-  const env = process.env.PLAID_ENV ?? "sandbox";
+  const env = resolvePlaidEnv();
   const host = HOSTS[env];
 
   if (!clientId || !secret) {
