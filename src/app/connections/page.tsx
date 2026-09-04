@@ -3,6 +3,7 @@ import { getViewer } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { isPlaidEnabled } from "@/lib/plaid/client";
 import { formatDate } from "@/lib/format";
+import { PlaidPanel } from "@/components/PlaidPanel";
 import type { CardAccountRow, ImportBatchRow } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
@@ -51,27 +52,11 @@ export default async function ConnectionsPage() {
         </header>
 
         {enabled ? (
-          plaidAccounts.length === 0 ? (
-            <p className="text-sm text-ink-500">
-              No institution is connected yet. An admin can link one from Plaid Link.
-            </p>
-          ) : (
-            <ul className="divide-y divide-ink-850 text-sm">
-              {plaidAccounts.map((account) => (
-                <li key={account.id} className="flex items-center justify-between gap-3 py-2.5">
-                  <span>
-                    {account.name ?? "Account"}
-                    {account.mask ? ` ••••${account.mask}` : ""}
-                  </span>
-                  <span className="text-ink-500">
-                    {account.card_account_id
-                      ? `→ ${accountName.get(account.card_account_id) ?? "unknown"}`
-                      : "not mapped"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )
+          <PlaidPanel
+            plaidAccounts={plaidAccounts}
+            cardAccounts={accounts}
+            isAdmin={viewer?.role === "admin"}
+          />
         ) : (
           <div className="rounded-lg border border-ink-800 bg-ink-950 p-4 text-sm text-ink-500">
             <p>
